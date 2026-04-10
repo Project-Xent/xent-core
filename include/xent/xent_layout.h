@@ -1,0 +1,66 @@
+#ifndef XENT_LAYOUT_H
+#define XENT_LAYOUT_H
+
+#include "xent_types.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+bool xent_set_protocol(XentContext *ctx, XentNodeId node, XentProtocol protocol);
+
+bool xent_set_size(XentContext *ctx, XentNodeId node, float width, float height);
+bool xent_set_min_size(XentContext *ctx, XentNodeId node, float min_width, float min_height);
+bool xent_set_max_size(XentContext *ctx, XentNodeId node, float max_width, float max_height);
+bool xent_set_margin(XentContext *ctx, XentNodeId node, float left, float top, float right, float bottom);
+bool xent_set_padding(XentContext *ctx, XentNodeId node, float left, float top, float right, float bottom);
+bool xent_set_absolute_position(XentContext *ctx, XentNodeId node, float x, float y);
+bool xent_set_gap(XentContext *ctx, XentNodeId node, float gap);
+
+bool xent_set_flex_grow(XentContext *ctx, XentNodeId node, float grow);
+bool xent_set_flex_shrink(XentContext *ctx, XentNodeId node, float shrink);
+bool xent_set_flex_basis(XentContext *ctx, XentNodeId node, float basis);
+bool xent_set_flex_direction(XentContext *ctx, XentNodeId node, XentFlexDirection direction);
+bool xent_set_flex_wrap(XentContext *ctx, XentNodeId node, XentFlexWrap wrap);
+bool xent_set_flex_justify_content(XentContext *ctx, XentNodeId node, XentFlexJustify justify);
+bool xent_set_flex_align_items(XentContext *ctx, XentNodeId node, XentFlexAlign align_items);
+bool xent_set_flex_align_self(XentContext *ctx, XentNodeId node, XentFlexAlign align_self);
+bool xent_set_flex_align_content(XentContext *ctx, XentNodeId node, XentFlexAlignContent align_content);
+
+bool xent_set_stack_axis(XentContext *ctx, XentNodeId node, XentAxis axis);
+bool xent_set_stack_alignment(XentContext *ctx, XentNodeId node, XentStackAlign alignment);
+XentStackAlign xent_get_stack_alignment(const XentContext *ctx, XentNodeId node);
+bool xent_set_layout_priority(XentContext *ctx, XentNodeId node, float priority);
+bool xent_set_is_spacer(XentContext *ctx, XentNodeId node, bool is_spacer);
+bool xent_set_direction(XentContext *ctx, XentNodeId node, XentDirection direction);
+XentDirection xent_get_direction(const XentContext *ctx, XentNodeId node);
+XentDirection xent_get_resolved_direction(const XentContext *ctx, XentNodeId node);
+bool xent_get_resolved_margin(const XentContext *ctx,
+                              XentNodeId node,
+                              XentAxis main_axis,
+                              float *out_main_start,
+                              float *out_main_end,
+                              float *out_cross_start,
+                              float *out_cross_end);
+bool xent_get_resolved_padding(const XentContext *ctx,
+                               XentNodeId node,
+                               XentAxis main_axis,
+                               float *out_main_start,
+                               float *out_main_end,
+                               float *out_cross_start,
+                               float *out_cross_end);
+
+bool xent_set_point_scale_factor(XentContext *ctx, float point_scale_factor);
+float xent_get_point_scale_factor(const XentContext *ctx);
+bool xent_set_pixel_rounding_enabled(XentContext *ctx, bool enabled);
+bool xent_is_pixel_rounding_enabled(const XentContext *ctx);
+
+bool xent_layout(XentContext *ctx, XentNodeId root, float available_width, float available_height);
+bool xent_get_layout_rect(const XentContext *ctx, XentNodeId node, XentRect *out_rect);
+XentLayoutStrategy xent_get_last_layout_strategy(const XentContext *ctx);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

@@ -126,6 +126,15 @@ bool xent_ensure_node_capacity(XentContext *ctx, uint32_t needed) {
     GROW_ARRAY(semantic_value_min);
     GROW_ARRAY(semantic_value_max);
 
+    GROW_ARRAY(focusable);
+    GROW_ARRAY(tab_index);
+
+    GROW_ARRAY(grid_def);
+    GROW_ARRAY(grid_row);
+    GROW_ARRAY(grid_column);
+    GROW_ARRAY(grid_row_span);
+    GROW_ARRAY(grid_column_span);
+
 #undef GROW_ARRAY
 
     for (uint32_t i = old_cap; i < new_cap; ++i) {
@@ -158,6 +167,11 @@ bool xent_ensure_node_capacity(XentContext *ctx, uint32_t needed) {
         n->protocol[i] = (uint8_t)XENT_PROTOCOL_ABSOLUTE;
         n->direction[i] = (uint8_t)XENT_DIRECTION_INHERIT;
         n->semantic_enabled[i] = 1u;
+        n->grid_def[i] = NULL;
+        n->grid_row[i] = 0;
+        n->grid_column[i] = 0;
+        n->grid_row_span[i] = 1;
+        n->grid_column_span[i] = 1;
     }
 
     n->capacity = new_cap;

@@ -65,6 +65,11 @@ XentProfileStats xent_profile_get(const XentContext *ctx);
 void xent_profile_dump(const XentContext *ctx, FILE *out);
 bool xent_is_highway_enabled(void);
 
+bool     xent_set_focusable(XentContext *ctx, XentNodeId node, bool focusable);
+bool     xent_get_focusable(const XentContext *ctx, XentNodeId node);
+bool     xent_set_tab_index(XentContext *ctx, XentNodeId node, int32_t tab_index);
+int32_t  xent_get_tab_index(const XentContext *ctx, XentNodeId node);
+
 #ifdef __cplusplus
 }
 #endif

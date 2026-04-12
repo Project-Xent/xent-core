@@ -45,6 +45,8 @@ static void xent_free_strings(XentContext *ctx) {
         ctx->nodes.text[i] = NULL;
         free(ctx->nodes.semantic_label[i]);
         ctx->nodes.semantic_label[i] = NULL;
+        free(ctx->nodes.grid_def[i]);
+        ctx->nodes.grid_def[i] = NULL;
     }
 }
 
@@ -141,6 +143,15 @@ void xent_destroy_context(XentContext *ctx) {
     FREE_FIELD(semantic_value_min);
     FREE_FIELD(semantic_value_max);
 
+    FREE_FIELD(focusable);
+    FREE_FIELD(tab_index);
+
+    FREE_FIELD(grid_def);
+    FREE_FIELD(grid_row);
+    FREE_FIELD(grid_column);
+    FREE_FIELD(grid_row_span);
+    FREE_FIELD(grid_column_span);
+
 #undef FREE_FIELD
 
     free(ctx->free_ids);
@@ -153,4 +164,34 @@ void xent_destroy_context(XentContext *ctx) {
     ctx->scratch = NULL;
 
     free(ctx);
+}
+
+bool xent_set_focusable(XentContext *ctx, XentNodeId node, bool focusable) {
+    if (!ctx || node == XENT_NODE_INVALID || node >= ctx->nodes.capacity)
+        return false;
+    if (!ctx->nodes.alive[node]) return false;
+    ctx->nodes.focusable[node] = focusable ? 1 : 0;
+    return true;
+}
+
+bool xent_get_focusable(const XentContext *ctx, XentNodeId node) {
+    if (!ctx || node == XENT_NODE_INVALID || node >= ctx->nodes.capacity)
+        return false;
+    if (!ctx->nodes.alive[node]) return false;
+    return ctx->nodes.focusable[node] != 0;
+}
+
+bool xent_set_tab_index(XentContext *ctx, XentNodeId node, int32_t tab_index) {
+    if (!ctx || node == XENT_NODE_INVALID || node >= ctx->nodes.capacity)
+        return false;
+    if (!ctx->nodes.alive[node]) return false;
+    ctx->nodes.tab_index[node] = tab_index;
+    return true;
+}
+
+int32_t xent_get_tab_index(const XentContext *ctx, XentNodeId node) {
+    if (!ctx || node == XENT_NODE_INVALID || node >= ctx->nodes.capacity)
+        return 0;
+    if (!ctx->nodes.alive[node]) return 0;
+    return ctx->nodes.tab_index[node];
 }

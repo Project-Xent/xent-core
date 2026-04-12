@@ -105,6 +105,15 @@ XentNodeId xent_create_node(XentContext *ctx) {
     ctx->nodes.semantic_value_min[id] = 0.0f;
     ctx->nodes.semantic_value_max[id] = 0.0f;
 
+    if (ctx->nodes.grid_def[id]) {
+        free(ctx->nodes.grid_def[id]);
+        ctx->nodes.grid_def[id] = NULL;
+    }
+    ctx->nodes.grid_row[id] = 0;
+    ctx->nodes.grid_column[id] = 0;
+    ctx->nodes.grid_row_span[id] = 1;
+    ctx->nodes.grid_column_span[id] = 1;
+
     return id;
 }
 
@@ -122,6 +131,9 @@ static void xent_destroy_subtree(XentContext *ctx, XentNodeId node) {
     free(ctx->nodes.semantic_label[node]);
     ctx->nodes.semantic_label[node] = NULL;
     ctx->nodes.userdata[node] = NULL;
+
+    free(ctx->nodes.grid_def[node]);
+    ctx->nodes.grid_def[node] = NULL;
 
     ctx->nodes.alive[node] = 0u;
     ctx->nodes.parent[node] = XENT_NODE_INVALID;

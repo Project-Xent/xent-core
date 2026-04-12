@@ -9,6 +9,19 @@
 
 #include "xent/xent.h"
 
+#define XENT_GRID_MAX_TRACKS 16
+
+typedef struct XentGridDef {
+    uint8_t row_count;
+    uint8_t col_count;
+    float row_gap;
+    float col_gap;
+    uint8_t row_modes[XENT_GRID_MAX_TRACKS];
+    float row_values[XENT_GRID_MAX_TRACKS];
+    uint8_t col_modes[XENT_GRID_MAX_TRACKS];
+    float col_values[XENT_GRID_MAX_TRACKS];
+} XentGridDef;
+
 typedef struct XentTextCacheEntry {
     uint64_t hash;
     char *text;
@@ -128,6 +141,16 @@ typedef struct XentNodeStore {
     float    *semantic_value_now;
     float    *semantic_value_min;
     float    *semantic_value_max;
+
+    uint8_t  *focusable;
+    int32_t  *tab_index;
+
+    /* Grid layout */
+    XentGridDef **grid_def;
+    uint16_t *grid_row;
+    uint16_t *grid_column;
+    uint16_t *grid_row_span;
+    uint16_t *grid_column_span;
 } XentNodeStore;
 
 typedef struct XentMonoBackendState {
@@ -242,6 +265,13 @@ void xent_layout_node_swiftstack(XentContext *ctx,
                                  float available_h,
                                  float origin_x,
                                  float origin_y);
+
+void xent_layout_node_grid(XentContext *ctx,
+                           XentNodeId node,
+                           float available_w,
+                           float available_h,
+                           float origin_x,
+                           float origin_y);
 
 void xent_compute_intrinsic_size(XentContext *ctx,
                                  XentNodeId node,

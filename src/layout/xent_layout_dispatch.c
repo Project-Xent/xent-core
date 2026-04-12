@@ -188,6 +188,9 @@ void xent_layout_dispatch_node(XentContext *ctx,
         case XENT_PROTOCOL_SWIFTSTACK:
             xent_layout_node_swiftstack(ctx, node, available_w, available_h, origin_x, origin_y);
             break;
+        case XENT_PROTOCOL_GRID:
+            xent_layout_node_grid(ctx, node, available_w, available_h, origin_x, origin_y);
+            break;
         case XENT_PROTOCOL_ABSOLUTE:
         default:
             xent_layout_node_absolute(ctx, node, available_w, available_h, origin_x, origin_y);
@@ -769,4 +772,115 @@ XentLayoutStrategy xent_get_last_layout_strategy(const XentContext *ctx) {
         return XENT_LAYOUT_STRATEGY_NONE;
     }
     return (XentLayoutStrategy)ctx->last_layout_strategy;
+}
+
+/* ── Grid layout API ────────────────────────────────────────────────── */
+
+static XentGridDef *xent_ensure_grid_def(XentContext *ctx, XentNodeId node) {
+    if (!ctx->nodes.grid_def[node]) {
+        XentGridDef *def = (XentGridDef *)calloc(1, sizeof(XentGridDef));
+        if (!def) return NULL;
+        ctx->nodes.grid_def[node] = def;
+    }
+    return ctx->nodes.grid_def[node];
+}
+
+bool xent_set_grid_rows(XentContext *ctx, XentNodeId node,
+                        const XentGridSizeMode *modes, const float *values,
+                        uint32_t count) {
+    if (!xent_is_valid_node(ctx, node) || count > XENT_GRID_MAX_TRACKS) {
+        return false;
+    }
+    XentGridDef *def = xent_ensure_grid_def(ctx, node);
+    if (!def) return false;
+    def->row_count = (uint8_t)count;
+    for (uint32_t i = 0; i < count; ++i) {
+        def->row_modes[i] = (uint8_t)modes[i];
+        def->row_values[i] = values[i];
+    }
+    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
+    return true;
+}
+
+bool xent_set_grid_columns(XentContext *ctx, XentNodeId node,
+                           const XentGridSizeMode *modes, const float *values,
+                           uint32_t count) {
+    if (!xent_is_valid_node(ctx, node) || count > XENT_GRID_MAX_TRACKS) {
+        return false;
+    }
+    XentGridDef *def = xent_ensure_grid_def(ctx, node);
+    if (!def) return false;
+    def->col_count = (uint8_t)count;
+    for (uint32_t i = 0; i < count; ++i) {
+        def->col_modes[i] = (uint8_t)modes[i];
+        def->col_values[i] = values[i];
+    }
+    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
+    return true;
+}
+
+bool xent_set_grid_row(XentContext *ctx, XentNodeId node, uint32_t row) {
+    if (!xent_is_valid_node(ctx, node)) return false;
+    ctx->nodes.grid_row[node] = (uint16_t)row;
+    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
+    return true;
+}
+
+bool xent_set_grid_column(XentContext *ctx, XentNodeId node, uint32_t column) {
+    if (!xent_is_valid_node(ctx, node)) return false;
+    ctx->nodes.grid_column[node] = (uint16_t)column;
+    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
+    return true;
+}
+
+bool xent_set_grid_row_span(XentContext *ctx, XentNodeId node, uint32_t span) {
+    if (!xent_is_valid_node(ctx, node) || span == 0) return false;
+    ctx->nodes.grid_row_span[node] = (uint16_t)span;
+    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
+    return true;
+}
+
+bool xent_set_grid_column_span(XentContext *ctx, XentNodeId node, uint32_t span) {
+    if (!xent_is_valid_node(ctx, node) || span == 0) return false;
+    ctx->nodes.grid_column_span[node] = (uint16_t)span;
+    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
+    return true;
+}
+
+bool xent_set_grid_row_gap(XentContext *ctx, XentNodeId node, float gap) {
+    if (!xent_is_valid_node(ctx, node)) return false;
+    XentGridDef *def = xent_ensure_grid_def(ctx, node);
+    if (!def) return false;
+    def->row_gap = gap;
+    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
+    return true;
+}
+
+bool xent_set_grid_column_gap(XentContext *ctx, XentNodeId node, float gap) {
+    if (!xent_is_valid_node(ctx, node)) return false;
+    XentGridDef *def = xent_ensure_grid_def(ctx, node);
+    if (!def) return false;
+    def->col_gap = gap;
+    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
+    return true;
+}
+
+uint32_t xent_get_grid_row(const XentContext *ctx, XentNodeId node) {
+    if (!xent_is_valid_node(ctx, node)) return 0;
+    return ctx->nodes.grid_row[node];
+}
+
+uint32_t xent_get_grid_column(const XentContext *ctx, XentNodeId node) {
+    if (!xent_is_valid_node(ctx, node)) return 0;
+    return ctx->nodes.grid_column[node];
+}
+
+uint32_t xent_get_grid_row_span(const XentContext *ctx, XentNodeId node) {
+    if (!xent_is_valid_node(ctx, node)) return 1;
+    return ctx->nodes.grid_row_span[node];
+}
+
+uint32_t xent_get_grid_column_span(const XentContext *ctx, XentNodeId node) {
+    if (!xent_is_valid_node(ctx, node)) return 1;
+    return ctx->nodes.grid_column_span[node];
 }

@@ -22,6 +22,7 @@ target("xent_core")
     add_includedirs("include", {public = true})
     add_headerfiles("include/xent/*.h")
     add_files("src/core/*.c", "src/layout/*.c", "src/text/*.c", "src/cli/*.c", "src/plugins/*.c")
+    add_cflags("-ffunction-sections", "-fdata-sections", { force = true })
     if has_config("simd") then
         add_defines("XENT_ENABLE_SIMD=1", {public = true})
     else
@@ -67,6 +68,7 @@ for _, test_name in ipairs({
     "test_text_shaping",
     "test_mixed_protocols",
     "test_rtl_baseline_conformance",
+    "test_layout_grid",
 }) do
     target(test_name)
         set_kind("binary")
@@ -97,6 +99,7 @@ task("test")
             "test_text_shaping",
             "test_mixed_protocols",
             "test_rtl_baseline_conformance",
+            "test_layout_grid",
         }
         for _, t in ipairs(tests) do
             os.exec("xmake build " .. t)

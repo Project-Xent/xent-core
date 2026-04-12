@@ -14,7 +14,14 @@ typedef enum XentProtocol {
     XENT_PROTOCOL_ABSOLUTE = 1,
     XENT_PROTOCOL_FLEX = 2,
     XENT_PROTOCOL_SWIFTSTACK = 3,
+    XENT_PROTOCOL_GRID = 4,
 } XentProtocol;
+
+typedef enum XentGridSizeMode {
+    XENT_GRID_AUTO = 0,
+    XENT_GRID_PIXEL = 1,
+    XENT_GRID_STAR = 2,
+} XentGridSizeMode;
 
 typedef enum XentFlexDirection {
     XENT_FLEX_ROW = 0,
@@ -97,6 +104,12 @@ typedef enum XentControlType {
     XENT_CONTROL_CARD,
     XENT_CONTROL_DIVIDER,
     XENT_CONTROL_CANVAS,
+    XENT_CONTROL_PASSWORD_BOX,
+    XENT_CONTROL_NUMBER_BOX,
+    XENT_CONTROL_HYPERLINK,
+    XENT_CONTROL_REPEAT_BUTTON,
+    XENT_CONTROL_PROGRESS_RING,
+    XENT_CONTROL_INFO_BADGE,
     XENT_CONTROL_CUSTOM,
 } XentControlType;
 

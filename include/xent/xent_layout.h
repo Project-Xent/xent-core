@@ -50,6 +50,25 @@ bool xent_get_resolved_padding(const XentContext *ctx,
                                float *out_cross_start,
                                float *out_cross_end);
 
+/* Grid layout */
+bool xent_set_grid_rows(XentContext *ctx, XentNodeId node,
+                        const XentGridSizeMode *modes, const float *values,
+                        uint32_t count);
+bool xent_set_grid_columns(XentContext *ctx, XentNodeId node,
+                           const XentGridSizeMode *modes, const float *values,
+                           uint32_t count);
+bool xent_set_grid_row(XentContext *ctx, XentNodeId node, uint32_t row);
+bool xent_set_grid_column(XentContext *ctx, XentNodeId node, uint32_t column);
+bool xent_set_grid_row_span(XentContext *ctx, XentNodeId node, uint32_t span);
+bool xent_set_grid_column_span(XentContext *ctx, XentNodeId node, uint32_t span);
+bool xent_set_grid_row_gap(XentContext *ctx, XentNodeId node, float gap);
+bool xent_set_grid_column_gap(XentContext *ctx, XentNodeId node, float gap);
+
+uint32_t xent_get_grid_row(const XentContext *ctx, XentNodeId node);
+uint32_t xent_get_grid_column(const XentContext *ctx, XentNodeId node);
+uint32_t xent_get_grid_row_span(const XentContext *ctx, XentNodeId node);
+uint32_t xent_get_grid_column_span(const XentContext *ctx, XentNodeId node);
+
 bool xent_set_point_scale_factor(XentContext *ctx, float point_scale_factor);
 float xent_get_point_scale_factor(const XentContext *ctx);
 bool xent_set_pixel_rounding_enabled(XentContext *ctx, bool enabled);

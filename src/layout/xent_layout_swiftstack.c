@@ -1,5 +1,9 @@
 #include "../xent_internal.h"
 
+#if XENT_ISPC_ENABLED
+#include "xent_ispc_kernels_ispc.h"
+#endif
+
 typedef struct StackChildData {
     XentNodeId node_id;
     float preferred_main;
@@ -229,15 +233,55 @@ void xent_layout_node_swiftstack(XentContext *ctx,
     if (remainder > 0.0f) {
         if (spacer_count > 0u) {
             float each = remainder / (float)spacer_count;
-            for (uint32_t i = 0; i < collected_count; ++i) {
-                if (children[i].spacer) {
-                    main_sizes[i] += each;
+#if XENT_ISPC_ENABLED
+            if (collected_count >= 32u) {
+                uint8_t *spacer_mask = (uint8_t *)xent_scratch_alloc(ctx, collected_count, 1u);
+                if (spacer_mask) {
+                    for (uint32_t i = 0; i < collected_count; ++i) {
+                        spacer_mask[i] = children[i].spacer ? 1u : 0u;
+                    }
+                    xent_ispc_masked_add_f32(main_sizes, spacer_mask, collected_count, each);
+                } else {
+                    for (uint32_t i = 0; i < collected_count; ++i) {
+                        if (children[i].spacer) main_sizes[i] += each;
+                    }
+                }
+            } else
+#endif
+            {
+                for (uint32_t i = 0; i < collected_count; ++i) {
+                    if (children[i].spacer) {
+                        main_sizes[i] += each;
+                    }
                 }
             }
         } else if (priority_sum > 0.0f) {
-            for (uint32_t i = 0; i < collected_count; ++i) {
-                if (!children[i].fixed_main && children[i].priority > 0.0f) {
-                    main_sizes[i] += remainder * (children[i].priority / priority_sum);
+#if XENT_ISPC_ENABLED
+            if (collected_count >= 32u) {
+                uint8_t *prio_mask = (uint8_t *)xent_scratch_alloc(ctx, collected_count, 1u);
+                float *prio_weights = (float *)xent_scratch_alloc(ctx, sizeof(float) * collected_count, _Alignof(float));
+                if (prio_mask && prio_weights) {
+                    for (uint32_t i = 0; i < collected_count; ++i) {
+                        bool eligible = !children[i].fixed_main && children[i].priority > 0.0f;
+                        prio_mask[i] = eligible ? 1u : 0u;
+                        prio_weights[i] = children[i].priority;
+                    }
+                    xent_ispc_masked_fma_f32(main_sizes, prio_mask, prio_weights,
+                                              collected_count, remainder, priority_sum);
+                } else {
+                    for (uint32_t i = 0; i < collected_count; ++i) {
+                        if (!children[i].fixed_main && children[i].priority > 0.0f) {
+                            main_sizes[i] += remainder * (children[i].priority / priority_sum);
+                        }
+                    }
+                }
+            } else
+#endif
+            {
+                for (uint32_t i = 0; i < collected_count; ++i) {
+                    if (!children[i].fixed_main && children[i].priority > 0.0f) {
+                        main_sizes[i] += remainder * (children[i].priority / priority_sum);
+                    }
                 }
             }
         }
@@ -290,32 +334,76 @@ void xent_layout_node_swiftstack(XentContext *ctx,
                 float remaining_reduce = group_reduce - reduce_flexible;
 
                 if (reduce_flexible > 0.0f && flexible_total > 0.0f) {
-                    for (uint32_t i = group_start; i < rank; ++i) {
-                        uint32_t child_index = priority_order[i];
-                        if (children[child_index].fixed_main) {
-                            continue;
+                    bool done = false;
+#if XENT_ISPC_ENABLED
+                    uint32_t group_size = rank - group_start;
+                    if (group_size >= 16u) {
+                        uint32_t *flex_idx = (uint32_t *)xent_scratch_alloc(ctx, sizeof(uint32_t) * group_size, _Alignof(uint32_t));
+                        if (flex_idx) {
+                            uint32_t flex_count = 0;
+                            for (uint32_t i = group_start; i < rank; ++i) {
+                                uint32_t ci = priority_order[i];
+                                if (!children[ci].fixed_main) {
+                                    flex_idx[flex_count++] = ci;
+                                }
+                            }
+                            if (flex_count > 0) {
+                                xent_ispc_proportional_reduce_gather(main_sizes, flex_idx, flex_count, reduce_flexible, flexible_total);
+                            }
+                            done = true;
                         }
-                        float current = main_sizes[child_index];
-                        float share = reduce_flexible * (current / flexible_total);
-                        if (share > current) {
-                            share = current;
+                    }
+#endif
+                    if (!done) {
+                        for (uint32_t i = group_start; i < rank; ++i) {
+                            uint32_t child_index = priority_order[i];
+                            if (children[child_index].fixed_main) {
+                                continue;
+                            }
+                            float current = main_sizes[child_index];
+                            float share = reduce_flexible * (current / flexible_total);
+                            if (share > current) {
+                                share = current;
+                            }
+                            main_sizes[child_index] = current - share;
                         }
-                        main_sizes[child_index] = current - share;
                     }
                 }
 
                 if (remaining_reduce > 0.0f && fixed_total > 0.0f) {
-                    for (uint32_t i = group_start; i < rank; ++i) {
-                        uint32_t child_index = priority_order[i];
-                        if (!children[child_index].fixed_main) {
-                            continue;
+                    bool done = false;
+#if XENT_ISPC_ENABLED
+                    uint32_t group_size = rank - group_start;
+                    if (group_size >= 16u) {
+                        uint32_t *fixed_idx = (uint32_t *)xent_scratch_alloc(ctx, sizeof(uint32_t) * group_size, _Alignof(uint32_t));
+                        if (fixed_idx) {
+                            uint32_t fixed_count = 0;
+                            for (uint32_t i = group_start; i < rank; ++i) {
+                                uint32_t ci = priority_order[i];
+                                if (children[ci].fixed_main) {
+                                    fixed_idx[fixed_count++] = ci;
+                                }
+                            }
+                            if (fixed_count > 0) {
+                                xent_ispc_proportional_reduce_gather(main_sizes, fixed_idx, fixed_count, remaining_reduce, fixed_total);
+                            }
+                            done = true;
                         }
-                        float current = main_sizes[child_index];
-                        float share = remaining_reduce * (current / fixed_total);
-                        if (share > current) {
-                            share = current;
+                    }
+#endif
+                    if (!done) {
+                        for (uint32_t i = group_start; i < rank; ++i) {
+                            uint32_t child_index = priority_order[i];
+                            if (!children[child_index].fixed_main) {
+                                continue;
+                            }
+                            float current = main_sizes[child_index];
+                            float share = remaining_reduce * (current / fixed_total);
+                            if (share > current) {
+                                share = current;
+                            }
+                            main_sizes[child_index] = current - share;
                         }
-                        main_sizes[child_index] = current - share;
                     }
                 }
 

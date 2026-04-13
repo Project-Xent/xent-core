@@ -63,7 +63,7 @@ XentNodeId xent_get_last_layout_root(const XentContext *ctx);
 void xent_profile_reset(XentContext *ctx);
 XentProfileStats xent_profile_get(const XentContext *ctx);
 void xent_profile_dump(const XentContext *ctx, FILE *out);
-bool xent_is_highway_enabled(void);
+bool xent_is_simd_enabled(void);
 
 bool     xent_set_focusable(XentContext *ctx, XentNodeId node, bool focusable);
 bool     xent_get_focusable(const XentContext *ctx, XentNodeId node);

@@ -1,5 +1,9 @@
 #include "../xent_internal.h"
 
+#if XENT_ISPC_ENABLED
+#include "xent_ispc_kernels_ispc.h"
+#endif
+
 typedef struct FlexChildData {
     XentNodeId id;
     float base_main;
@@ -120,8 +124,48 @@ static void xent_compute_line_stats(FlexLineData *line,
     line->sum_shrink_weight = 0.0f;
     line->cross_outer = wrap_enabled ? 0.0f : available_cross;
 
-    for (uint32_t i = 0u; i < line->count; ++i) {
-        const FlexChildData *child = &children[line->start + i];
+    uint32_t count = line->count;
+    const FlexChildData *base = &children[line->start];
+
+#if XENT_ISPC_ENABLED
+    if (count >= 32u) {
+        /* Extract SoA from the AoS slice — ISPC kernels need contiguous arrays. */
+        float *bm  = (float *)malloc(sizeof(float) * count * 8u);
+        if (bm) {
+            float *ml  = bm + count;
+            float *mt  = ml + count;
+            float *bc  = mt + count;
+            float *mcl = bc + count;
+            float *mct = mcl + count;
+            float *gw  = mct + count;
+            float *sh  = gw + count;
+            for (uint32_t i = 0; i < count; ++i) {
+                bm[i]  = base[i].base_main;
+                ml[i]  = base[i].margin_lead;
+                mt[i]  = base[i].margin_trail;
+                bc[i]  = base[i].base_cross;
+                mcl[i] = base[i].margin_cross_lead;
+                mct[i] = base[i].margin_cross_trail;
+                gw[i]  = base[i].grow;
+                sh[i]  = base[i].shrink;
+            }
+            float sum_outer, sum_grow, sum_sw, max_cross;
+            xent_ispc_flex_line_stats(bm, ml, mt, bc, mcl, mct, gw, sh, count,
+                                      &sum_outer, &sum_grow, &sum_sw, &max_cross);
+            line->base_main = sum_outer + (count > 1u ? gap * (float)(count - 1u) : 0.0f);
+            line->sum_grow = sum_grow;
+            line->sum_shrink_weight = sum_sw;
+            if (wrap_enabled) {
+                line->cross_outer = max_cross;
+            }
+            free(bm);
+            return;
+        }
+    }
+#endif
+
+    for (uint32_t i = 0u; i < count; ++i) {
+        const FlexChildData *child = &base[i];
         if (i > 0u) {
             line->base_main += gap;
         }
@@ -329,25 +373,82 @@ void xent_layout_node_flex(XentContext *ctx,
         FlexLineData *line = &lines[li];
         float delta = available_main - line->base_main;
 
-        for (uint32_t i = 0u; i < line->count; ++i) {
-            FlexChildData *entry = &children[line->start + i];
-            float size = entry->base_main;
-            if (delta > 0.0f && line->sum_grow > 0.0f) {
-                size += delta * (entry->grow / line->sum_grow);
-            } else if (delta < 0.0f && line->sum_shrink_weight > 0.0f) {
-                float weight = entry->shrink * (entry->base_main > 0.0f ? entry->base_main : 1.0f);
-                size += delta * (weight / line->sum_shrink_weight);
-                if (size < 0.0f) {
-                    size = 0.0f;
+        {
+#if XENT_ISPC_ENABLED
+            bool ispc_done = false;
+            if (line->count >= 32u && (delta > 0.0f || delta < 0.0f)) {
+                float *bm = (float *)malloc(sizeof(float) * line->count * 3u);
+                if (bm) {
+                    float *gw = bm + line->count;
+                    float *sh = gw + line->count;
+                    FlexChildData *base = &children[line->start];
+                    for (uint32_t i = 0; i < line->count; ++i) {
+                        bm[i] = base[i].base_main;
+                        gw[i] = base[i].grow;
+                        sh[i] = base[i].shrink;
+                    }
+                    if (delta > 0.0f && line->sum_grow > 0.0f) {
+                        /* Use bm as both input base_main and output final_main (in-place is fine
+                           because ISPC reads all inputs before writing outputs in foreach). */
+                        xent_ispc_flex_distribute_grow(bm, gw, bm, line->count, delta, line->sum_grow);
+                    } else if (delta < 0.0f && line->sum_shrink_weight > 0.0f) {
+                        xent_ispc_flex_distribute_shrink(bm, sh, bm, line->count, delta, line->sum_shrink_weight);
+                    }
+                    for (uint32_t i = 0; i < line->count; ++i) {
+                        base[i].final_main = bm[i];
+                    }
+                    free(bm);
+                    ispc_done = true;
                 }
             }
-            entry->final_main = size;
+            if (!ispc_done)
+#endif
+            {
+                for (uint32_t i = 0u; i < line->count; ++i) {
+                    FlexChildData *entry = &children[line->start + i];
+                    float size = entry->base_main;
+                    if (delta > 0.0f && line->sum_grow > 0.0f) {
+                        size += delta * (entry->grow / line->sum_grow);
+                    } else if (delta < 0.0f && line->sum_shrink_weight > 0.0f) {
+                        float weight = entry->shrink * (entry->base_main > 0.0f ? entry->base_main : 1.0f);
+                        size += delta * (weight / line->sum_shrink_weight);
+                        if (size < 0.0f) {
+                            size = 0.0f;
+                        }
+                    }
+                    entry->final_main = size;
+                }
+            }
         }
 
         float occupied_main = (line->count > 1u) ? (gap * (float)(line->count - 1u)) : 0.0f;
-        for (uint32_t i = 0u; i < line->count; ++i) {
-            FlexChildData *entry = &children[line->start + i];
-            occupied_main += entry->final_main + entry->margin_lead + entry->margin_trail;
+        {
+#if XENT_ISPC_ENABLED
+            bool ispc_done = false;
+            if (line->count >= 32u) {
+                float *fm = (float *)malloc(sizeof(float) * line->count * 3u);
+                if (fm) {
+                    float *ml = fm + line->count;
+                    float *mt = ml + line->count;
+                    FlexChildData *base = &children[line->start];
+                    for (uint32_t i = 0; i < line->count; ++i) {
+                        fm[i] = base[i].final_main;
+                        ml[i] = base[i].margin_lead;
+                        mt[i] = base[i].margin_trail;
+                    }
+                    occupied_main += xent_ispc_sum_outer_main(fm, ml, mt, line->count);
+                    free(fm);
+                    ispc_done = true;
+                }
+            }
+            if (!ispc_done)
+#endif
+            {
+                for (uint32_t i = 0u; i < line->count; ++i) {
+                    FlexChildData *entry = &children[line->start + i];
+                    occupied_main += entry->final_main + entry->margin_lead + entry->margin_trail;
+                }
+            }
         }
         float remaining_main = available_main - occupied_main;
         if (remaining_main < 0.0f) {

@@ -288,5 +288,6 @@ void xent_scratch_reset(XentContext *ctx);
 void *xent_scratch_alloc(XentContext *ctx, size_t bytes, size_t alignment);
 float xent_simd_sum_f32(const float *values, uint32_t count);
 void xent_simd_fill_f32(float *values, uint32_t count, float value);
+void xent_batch_quantize_layout(XentContext *ctx);
 
 #endif

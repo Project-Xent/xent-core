@@ -9,13 +9,11 @@ option("simd")
     set_description("Enable experimental SIMD path scaffolding")
 option_end()
 
-option("highway")
+option("ispc")
     set_default(false)
     set_showmenu(true)
-    set_description("Enable Highway SIMD backend when available")
+    set_description("Enable ISPC SIMD backend when available")
 option_end()
-
-add_requires("highway", {optional = true})
 
 target("xent_core")
     set_kind("static")
@@ -28,12 +26,72 @@ target("xent_core")
     else
         add_defines("XENT_ENABLE_SIMD=0", {public = true})
     end
-    if has_config("highway") and has_package("highway") then
-        add_files("src/simd/*.cc")
-        add_packages("highway")
-        add_defines("XENT_HIGHWAY_ENABLED=1", {public = true})
+    if has_config("ispc") then
+        add_defines("XENT_ISPC_ENABLED=1", {public = true})
+
+        -- Register the generated-header include directory at load time so
+        -- every C source that #includes the ISPC header can find it.
+        on_load(function (target)
+            local headerdir = path.join(target:autogendir(), "rules", "ispc")
+            target:add("includedirs", headerdir)
+        end)
+
+        -- Compile every .ispc file *before* any C file is compiled.
+        -- This guarantees the generated _ispc.h header already exists when
+        -- xent_simd.c is built.  Multi-target builds (e.g. sse4 + avx2)
+        -- produce per-ISA object files that are all added to the link.
+        before_build(function (target)
+            import("lib.detect.find_program")
+            local ispc_bin = find_program("ispc")
+            assert(ispc_bin, "ispc compiler not found on PATH – install via `scoop install ispc`")
+
+            local headerdir = path.join(target:autogendir(), "rules", "ispc")
+            local objdir    = path.join(target:autogendir(), "rules", "ispc", "objs")
+            os.mkdir(headerdir)
+            os.mkdir(objdir)
+
+            local ispc_targets = {"sse4", "avx2"}
+            local targets_str  = table.concat(ispc_targets, ",")
+
+            local sources = os.files(path.join(os.scriptdir(), "src/simd/*.ispc"))
+            for _, sourcefile in ipairs(sources) do
+                local basename   = path.basename(sourcefile)
+                local objectfile = path.join(objdir, basename .. ".obj")
+                local headerfile = path.join(headerdir, basename .. "_ispc.h")
+
+                -- Incremental: skip when source has not changed.
+                local src_mtime = os.mtime(sourcefile)
+                local obj_mtime = os.mtime(objectfile)
+                if src_mtime > obj_mtime then
+                    local argv = {
+                        sourcefile,
+                        "-o", objectfile,
+                        "-h", headerfile,
+                        "--target=" .. targets_str,
+                        "--arch=x86-64",
+                        "--opt=fast-math",
+                    }
+                    if is_mode("debug") then
+                        table.insert(argv, "-g")
+                    end
+                    os.vrunv(ispc_bin, argv)
+                end
+
+            end
+        end)
+
+        -- After the normal archive is produced, append the ISPC object files
+        -- into the static library so consumers link them transparently.
+        after_build(function (target)
+            local objdir = path.join(target:autogendir(), "rules", "ispc", "objs")
+            local objs = os.files(path.join(objdir, "*.obj"))
+            if #objs > 0 then
+                local ar = target:tool("ar")
+                os.vrunv(ar, table.join({"rcs", target:targetfile()}, objs))
+            end
+        end)
     else
-        add_defines("XENT_HIGHWAY_ENABLED=0", {public = true})
+        add_defines("XENT_ISPC_ENABLED=0", {public = true})
     end
 
 for _, demo in ipairs({"demo_basic", "demo_flex_vs_swiftstack", "demo_dump_json"}) do
@@ -44,7 +102,7 @@ for _, demo in ipairs({"demo_basic", "demo_flex_vs_swiftstack", "demo_dump_json"
         add_includedirs("include")
 end
 
-for _, bench_name in ipairs({"bench_layout", "bench_compare_recursive_baseline", "bench_dirty_vs_full", "bench_regression_gates"}) do
+for _, bench_name in ipairs({"bench_layout", "bench_simd", "bench_compare_recursive_baseline", "bench_dirty_vs_full", "bench_regression_gates"}) do
     target(bench_name)
         set_kind("binary")
         add_files("bench/" .. bench_name .. ".c")

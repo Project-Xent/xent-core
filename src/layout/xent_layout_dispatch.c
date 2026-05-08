@@ -1,927 +1,292 @@
 #include "../xent_internal.h"
 
-#if XENT_ISPC_ENABLED
-#include "xent_ispc_kernels_ispc.h"
-#endif
+typedef struct XentDirtyPlan {
+	XentNodeId        *direct_dirty;
+	XentNodeId        *roots;
+	XentNodeId        *stack;
+	uint32_t           direct_count;
+	uint32_t           root_count;
+	uint32_t           affected_nodes;
+	XentLayoutStrategy strategy;
+} XentDirtyPlan;
 
-static float xent_clampf(float value, float min_v, float max_v) {
-    if (value < min_v) {
-        value = min_v;
-    }
-    if (value > max_v) {
-        value = max_v;
-    }
-    return value;
+void xent_layout_dispatch_node(XentLayoutRequest const *request) {
+	XentContext *ctx      = request->ctx;
+	XentNodeId   node     = request->node;
+	XentProtocol protocol = ( XentProtocol ) ctx->nodes.layout.protocol [node];
+	switch (protocol) {
+	case XENT_PROTOCOL_FLEX       : xent_layout_node_flex(request); break;
+	case XENT_PROTOCOL_SWIFTSTACK : xent_layout_node_swiftstack(request); break;
+	case XENT_PROTOCOL_GRID       : xent_layout_node_grid(request); break;
+	case XENT_PROTOCOL_ABSOLUTE   :
+	default                       : xent_layout_node_absolute(request); break;
+	}
 }
 
-static float xent_round_to_pixel_grid(const XentContext *ctx, float value) {
-    if (!ctx->config.enable_pixel_rounding) {
-        return value;
-    }
-    float scale = ctx->config.point_scale_factor;
-    if (!(scale > 0.0f) || !isfinite(scale) || !isfinite(value)) {
-        return value;
-    }
-    return roundf(value * scale) / scale;
+static bool xent_is_layout_dirty(uint32_t flags) { return (flags & (XENT_DIRTY_LAYOUT | XENT_DIRTY_SELF)) != 0u; }
+
+static bool xent_is_auto_sized_parent(XentContext const *ctx, XentNodeId node) {
+	return (isnan(ctx->nodes.layout.style_w [node]) && isnan(ctx->nodes.layout.style_w_percent [node]))
+	    || (isnan(ctx->nodes.layout.style_h [node]) && isnan(ctx->nodes.layout.style_h_percent [node]));
 }
 
-void xent_quantize_node_layout(XentContext *ctx, XentNodeId node) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return;
-    }
-    ctx->nodes.abs_x[node] = xent_round_to_pixel_grid(ctx, ctx->nodes.abs_x[node]);
-    ctx->nodes.abs_y[node] = xent_round_to_pixel_grid(ctx, ctx->nodes.abs_y[node]);
-    ctx->nodes.decided_w[node] = xent_round_to_pixel_grid(ctx, ctx->nodes.decided_w[node]);
-    ctx->nodes.decided_h[node] = xent_round_to_pixel_grid(ctx, ctx->nodes.decided_h[node]);
+static bool xent_can_promote_dirty_root(XentContext const *ctx, XentNodeId node) {
+	XentProtocol protocol = ( XentProtocol ) ctx->nodes.layout.protocol [node];
+	return (protocol == XENT_PROTOCOL_FLEX || protocol == XENT_PROTOCOL_SWIFTSTACK || protocol == XENT_PROTOCOL_GRID)
+	    && xent_is_auto_sized_parent(ctx, node);
 }
 
-void xent_batch_quantize_layout(XentContext *ctx) {
-    if (!ctx || !ctx->config.enable_pixel_rounding) {
-        return;
-    }
-    float scale = ctx->config.point_scale_factor;
-    if (!(scale > 0.0f) || !isfinite(scale)) {
-        return;
-    }
-#if XENT_ISPC_ENABLED
-    uint32_t count = ctx->work_count;
-    if (count >= 64u) {
-        xent_ispc_quantize_f32(ctx->nodes.abs_x + 1, ctx->nodes.count, scale);
-        xent_ispc_quantize_f32(ctx->nodes.abs_y + 1, ctx->nodes.count, scale);
-        xent_ispc_quantize_f32(ctx->nodes.decided_w + 1, ctx->nodes.count, scale);
-        xent_ispc_quantize_f32(ctx->nodes.decided_h + 1, ctx->nodes.count, scale);
-        return;
-    }
-#endif
-    for (uint32_t i = 0; i < ctx->work_count; ++i) {
-        XentNodeId n = ctx->work_order[i];
-        if (xent_is_valid_node(ctx, n)) {
-            xent_quantize_node_layout(ctx, n);
-        }
-    }
+static XentNodeId xent_promote_dirty_root(XentContext const *ctx, XentNodeId dirty_node, XentNodeId root) {
+	XentNodeId candidate = dirty_node;
+	for (XentNodeId parent = ctx->nodes.topology.parent [candidate]; parent != XENT_NODE_INVALID && parent != root;
+	  parent               = ctx->nodes.topology.parent [candidate])
+	{
+		if (!xent_can_promote_dirty_root(ctx, parent)) break;
+		candidate = parent;
+	}
+	return candidate;
 }
 
-static void xent_invalidate_all_layout(XentContext *ctx) {
-    if (!ctx) {
-        return;
-    }
-    uint32_t n = ctx->nodes.count;
-#if XENT_ISPC_ENABLED
-    if (n >= 64u) {
-        uint32_t or_value = XENT_DIRTY_LAYOUT | XENT_DIRTY_SUBTREE | XENT_DIRTY_SELF;
-        xent_ispc_or_u32_masked(ctx->nodes.dirty_flags + 1, ctx->nodes.alive + 1, n, or_value);
-        xent_ispc_zero_u8_masked(ctx->nodes.text_intrinsic_valid + 1, ctx->nodes.alive + 1, n);
-    } else {
-#endif
-        for (uint32_t i = 1u; i <= n; ++i) {
-            if (ctx->nodes.alive[i]) {
-                ctx->nodes.dirty_flags[i] |= XENT_DIRTY_LAYOUT | XENT_DIRTY_SUBTREE | XENT_DIRTY_SELF;
-                ctx->nodes.text_intrinsic_valid[i] = 0u;
-            }
-        }
-#if XENT_ISPC_ENABLED
-    }
-#endif
-    ctx->last_layout_root = XENT_NODE_INVALID;
-    ctx->last_layout_available_w = NAN;
-    ctx->last_layout_available_h = NAN;
+static bool xent_is_ancestor_of(XentContext const *ctx, XentNodeId maybe_ancestor, XentNodeId node) {
+	for (XentNodeId cursor = ctx->nodes.topology.parent [node]; cursor != XENT_NODE_INVALID;
+	  cursor               = ctx->nodes.topology.parent [cursor])
+		if (cursor == maybe_ancestor) return true;
+	return false;
 }
 
-static bool xent_is_valid_direction(XentDirection direction) {
-    return direction == XENT_DIRECTION_INHERIT || direction == XENT_DIRECTION_LTR || direction == XENT_DIRECTION_RTL;
+static bool xent_is_in_subtree(XentContext const *ctx, XentNodeId root, XentNodeId node) {
+	if (root == node) return true;
+	return xent_is_ancestor_of(ctx, root, node);
 }
 
-static XentDirection xent_resolve_direction_internal(const XentContext *ctx, XentNodeId node) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return XENT_DIRECTION_LTR;
-    }
-
-    XentNodeId cursor = node;
-    while (cursor != XENT_NODE_INVALID) {
-        XentDirection direction = (XentDirection)ctx->nodes.direction[cursor];
-        if (direction == XENT_DIRECTION_LTR || direction == XENT_DIRECTION_RTL) {
-            return direction;
-        }
-        cursor = ctx->nodes.parent[cursor];
-    }
-    return XENT_DIRECTION_LTR;
+static bool xent_append_unique_root(XentNodeId *roots, uint32_t *root_count, XentNodeId root) {
+	for (uint32_t i = 0; i < *root_count; ++i)
+		if (roots [i] == root) return false;
+	roots [(*root_count)++] = root;
+	return true;
 }
 
-static void xent_resolve_logical_insets(float left,
-                                        float top,
-                                        float right,
-                                        float bottom,
-                                        XentDirection direction,
-                                        XentAxis main_axis,
-                                        float *out_main_start,
-                                        float *out_main_end,
-                                        float *out_cross_start,
-                                        float *out_cross_end) {
-    if (main_axis == XENT_AXIS_HORIZONTAL) {
-        *out_main_start = (direction == XENT_DIRECTION_RTL) ? right : left;
-        *out_main_end = (direction == XENT_DIRECTION_RTL) ? left : right;
-        *out_cross_start = top;
-        *out_cross_end = bottom;
-        return;
-    }
+static bool xent_has_nested_root(XentContext const *ctx, XentNodeId const *roots, uint32_t root_count, uint32_t index) {
+	if (roots [index] == XENT_NODE_INVALID) return false;
 
-    *out_main_start = top;
-    *out_main_end = bottom;
-    *out_cross_start = (direction == XENT_DIRECTION_RTL) ? right : left;
-    *out_cross_end = (direction == XENT_DIRECTION_RTL) ? left : right;
+	for (uint32_t j = 0; j < root_count; ++j) {
+		if (index == j || roots [j] == XENT_NODE_INVALID) continue;
+		if (xent_is_ancestor_of(ctx, roots [j], roots [index])) return true;
+	}
+
+	return false;
 }
 
-void xent_compute_intrinsic_size(XentContext *ctx,
-                                 XentNodeId node,
-                                 float available_w,
-                                 float available_h,
-                                 float *out_w,
-                                 float *out_h) {
-    float width = ctx->nodes.style_w[node];
-    float height = ctx->nodes.style_h[node];
-
-    if (ctx->nodes.text[node] && (isnan(width) || isnan(height))) {
-        XentTextMetrics metrics = {0};
-        float text_constraint = isnan(width) ? available_w : width;
-        XentMeasureMode width_mode = XENT_MEASURE_UNDEFINED;
-        if (isnan(width)) {
-            if (isfinite(text_constraint) && text_constraint > 0.0f) {
-                width_mode = XENT_MEASURE_AT_MOST;
-            } else {
-                text_constraint = INFINITY;
-            }
-        } else {
-            width_mode = XENT_MEASURE_EXACTLY;
-        }
-        if (width_mode != XENT_MEASURE_EXACTLY && (!isfinite(text_constraint) || text_constraint <= 0.0f)) {
-            text_constraint = INFINITY;
-        }
-        XentLineBreakPolicy line_break_policy = (XentLineBreakPolicy)ctx->nodes.text_line_break_policy[node];
-        bool has_node_cache = ctx->nodes.text_intrinsic_valid[node] != 0u &&
-                              ctx->nodes.text_intrinsic_font_size[node] == ctx->nodes.font_size[node] &&
-                              ctx->nodes.text_intrinsic_constraint_w[node] == text_constraint &&
-                              ctx->nodes.text_intrinsic_line_break_policy[node] == (uint8_t)line_break_policy &&
-                              ctx->nodes.text_intrinsic_width_mode[node] == (uint8_t)width_mode;
-
-        if (has_node_cache) {
-            metrics.width = ctx->nodes.text_intrinsic_w[node];
-            metrics.height = ctx->nodes.text_intrinsic_h[node];
-            metrics.line_count = ctx->nodes.text_intrinsic_lines[node];
-        } else if (xent_measure_text(ctx,
-                                     ctx->nodes.text[node],
-                                     ctx->nodes.font_size[node],
-                                     text_constraint,
-                                     line_break_policy,
-                                     width_mode,
-                                     &metrics)) {
-            /* Per-node intrinsic cache avoids repeated hash/lookups for stable text nodes. */
-            ctx->nodes.text_intrinsic_valid[node] = 1u;
-            ctx->nodes.text_intrinsic_constraint_w[node] = text_constraint;
-            ctx->nodes.text_intrinsic_font_size[node] = ctx->nodes.font_size[node];
-            ctx->nodes.text_intrinsic_line_break_policy[node] = (uint8_t)line_break_policy;
-            ctx->nodes.text_intrinsic_width_mode[node] = (uint8_t)width_mode;
-            ctx->nodes.text_intrinsic_w[node] = metrics.width;
-            ctx->nodes.text_intrinsic_h[node] = metrics.height;
-            ctx->nodes.text_intrinsic_lines[node] = metrics.line_count;
-        }
-
-        if (has_node_cache || metrics.line_count > 0u || metrics.width > 0.0f || metrics.height > 0.0f) {
-            if (isnan(width)) {
-                width = metrics.width;
-            }
-            if (isnan(height)) {
-                height = metrics.height;
-            }
-        }
-    }
-
-    if (isnan(width)) {
-        width = available_w;
-    }
-    if (isnan(height)) {
-        height = available_h;
-    }
-    if (!isfinite(width) || width < 0.0f) {
-        width = 0.0f;
-    }
-    if (!isfinite(height) || height < 0.0f) {
-        height = 0.0f;
-    }
-
-    width = xent_clampf(width, ctx->nodes.min_w[node], ctx->nodes.max_w[node]);
-    height = xent_clampf(height, ctx->nodes.min_h[node], ctx->nodes.max_h[node]);
-
-    *out_w = width;
-    *out_h = height;
+static void xent_drop_nested_roots(XentContext const *ctx, XentNodeId *roots, uint32_t root_count) {
+	for (uint32_t i = 0; i < root_count; ++i)
+		if (xent_has_nested_root(ctx, roots, root_count, i)) roots [i] = XENT_NODE_INVALID;
 }
 
-void xent_layout_dispatch_node(XentContext *ctx,
-                               XentNodeId node,
-                               float available_w,
-                               float available_h,
-                               float origin_x,
-                               float origin_y) {
-    XentProtocol protocol = (XentProtocol)ctx->nodes.protocol[node];
-    switch (protocol) {
-        case XENT_PROTOCOL_FLEX:
-            xent_layout_node_flex(ctx, node, available_w, available_h, origin_x, origin_y);
-            break;
-        case XENT_PROTOCOL_SWIFTSTACK:
-            xent_layout_node_swiftstack(ctx, node, available_w, available_h, origin_x, origin_y);
-            break;
-        case XENT_PROTOCOL_GRID:
-            xent_layout_node_grid(ctx, node, available_w, available_h, origin_x, origin_y);
-            break;
-        case XENT_PROTOCOL_ABSOLUTE:
-        default:
-            xent_layout_node_absolute(ctx, node, available_w, available_h, origin_x, origin_y);
-            break;
-    }
+static uint32_t xent_compact_roots(XentNodeId *roots, uint32_t root_count) {
+	uint32_t compact = 0u;
+	for (uint32_t i = 0; i < root_count; ++i)
+		if (roots [i] != XENT_NODE_INVALID) roots [compact++] = roots [i];
+	return compact;
 }
 
-bool xent_set_protocol(XentContext *ctx, XentNodeId node, XentProtocol protocol) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return false;
-    }
-    ctx->nodes.protocol[node] = (uint8_t)protocol;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
+static uint32_t xent_collect_recompute_roots(
+  XentContext const *ctx, XentNodeId root, XentNodeId const *direct_dirty, uint32_t direct_count, XentNodeId *out_roots
+) {
+	uint32_t root_count = 0u;
+	for (uint32_t i = 0; i < direct_count; ++i) {
+		XentNodeId promoted = xent_promote_dirty_root(ctx, direct_dirty [i], root);
+		if (promoted == root) return 0u;
+		xent_append_unique_root(out_roots, &root_count, promoted);
+	}
+
+	xent_drop_nested_roots(ctx, out_roots, root_count);
+	return xent_compact_roots(out_roots, root_count);
 }
 
-bool xent_set_direction(XentContext *ctx, XentNodeId node, XentDirection direction) {
-    if (!xent_is_valid_node(ctx, node) || !xent_is_valid_direction(direction)) {
-        return false;
-    }
-    if (ctx->nodes.direction[node] != (uint8_t)direction) {
-        ctx->nodes.direction[node] = (uint8_t)direction;
-        xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT | XENT_DIRTY_SUBTREE);
-    }
-    return true;
+static bool
+xent_can_reuse_root_snapshot(XentContext const *ctx, XentNodeId root, float available_width, float available_height) {
+	if (ctx->last_layout_root != root) return false;
+	if (!isfinite(ctx->last_layout_available_w) || !isfinite(ctx->last_layout_available_h)) return false;
+	if (ctx->last_layout_available_w != available_width || ctx->last_layout_available_h != available_height)
+		return false;
+	return isfinite(ctx->nodes.layout.decided_w [root])
+	    && ctx->nodes.layout.decided_w [root] >= 0.0f
+	    && isfinite(ctx->nodes.layout.decided_h [root])
+	    && ctx->nodes.layout.decided_h [root] >= 0.0f;
 }
 
-XentDirection xent_get_direction(const XentContext *ctx, XentNodeId node) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return XENT_DIRECTION_INHERIT;
-    }
-    return (XentDirection)ctx->nodes.direction[node];
+static uint32_t
+xent_count_subtree_nodes(XentContext const *ctx, XentNodeId root, XentNodeId *stack, uint32_t stack_capacity) {
+	if (!stack || stack_capacity == 0u || !xent_is_valid_node(ctx, root)) return 0u;
+
+	uint32_t count       = 0u;
+	uint32_t stack_size  = 0u;
+	stack [stack_size++] = root;
+
+	while (stack_size > 0u) {
+		XentNodeId node   = stack [--stack_size];
+		count            += 1u;
+		XentNodeId child  = ctx->nodes.topology.first_child [node];
+		while (child != XENT_NODE_INVALID && stack_size < stack_capacity) {
+			stack [stack_size++] = child;
+			child                = ctx->nodes.topology.next_sibling [child];
+		}
+		if (child != XENT_NODE_INVALID) return 0u;
+	}
+
+	return count;
 }
 
-XentDirection xent_get_resolved_direction(const XentContext *ctx, XentNodeId node) {
-    return xent_resolve_direction_internal(ctx, node);
+static uint32_t xent_count_dirty_nodes(XentContext *ctx, XentNodeId root) {
+	xent_compact_dirty_nodes(ctx);
+	uint32_t dirty_count = 0u;
+	for (uint32_t i = 0; i < ctx->dirty_count; ++i) {
+		XentNodeId node = ctx->dirty_nodes [i];
+		if (xent_is_valid_node(ctx, node)
+			&& xent_is_layout_dirty(ctx->nodes.layout.dirty_flags [node])
+			&& xent_is_in_subtree(ctx, root, node))
+		{
+			dirty_count += 1u;
+		}
+	}
+	return dirty_count;
 }
 
-bool xent_get_resolved_margin(const XentContext *ctx,
-                              XentNodeId node,
-                              XentAxis main_axis,
-                              float *out_main_start,
-                              float *out_main_end,
-                              float *out_cross_start,
-                              float *out_cross_end) {
-    if (!xent_is_valid_node(ctx, node) || !out_main_start || !out_main_end || !out_cross_start || !out_cross_end) {
-        return false;
-    }
-    XentDirection direction = xent_resolve_direction_internal(ctx, node);
-    xent_resolve_logical_insets(ctx->nodes.margin_l[node],
-                                ctx->nodes.margin_t[node],
-                                ctx->nodes.margin_r[node],
-                                ctx->nodes.margin_b[node],
-                                direction,
-                                main_axis,
-                                out_main_start,
-                                out_main_end,
-                                out_cross_start,
-                                out_cross_end);
-    return true;
+static bool xent_alloc_dirty_plan(XentContext *ctx, XentDirtyPlan *plan, uint32_t total_nodes) {
+	size_t node_bytes  = sizeof(XentNodeId) * ( size_t ) plan->direct_count;
+	plan->direct_dirty = ( XentNodeId * ) xent_scratch_alloc(ctx, node_bytes, _Alignof(XentNodeId));
+	plan->roots        = ( XentNodeId * ) xent_scratch_alloc(ctx, node_bytes, _Alignof(XentNodeId));
+	plan->stack
+	  = ( XentNodeId * ) xent_scratch_alloc(ctx, sizeof(XentNodeId) * ( size_t ) total_nodes, _Alignof(XentNodeId));
+	return plan->direct_dirty && plan->roots && plan->stack;
 }
 
-bool xent_get_resolved_padding(const XentContext *ctx,
-                               XentNodeId node,
-                               XentAxis main_axis,
-                               float *out_main_start,
-                               float *out_main_end,
-                               float *out_cross_start,
-                               float *out_cross_end) {
-    if (!xent_is_valid_node(ctx, node) || !out_main_start || !out_main_end || !out_cross_start || !out_cross_end) {
-        return false;
-    }
-    XentDirection direction = xent_resolve_direction_internal(ctx, node);
-    xent_resolve_logical_insets(ctx->nodes.padding_l[node],
-                                ctx->nodes.padding_t[node],
-                                ctx->nodes.padding_r[node],
-                                ctx->nodes.padding_b[node],
-                                direction,
-                                main_axis,
-                                out_main_start,
-                                out_main_end,
-                                out_cross_start,
-                                out_cross_end);
-    return true;
+static void xent_collect_dirty_nodes(XentContext const *ctx, XentNodeId root, XentDirtyPlan *plan) {
+	uint32_t write = 0u;
+	for (uint32_t i = 0; i < ctx->dirty_count; ++i) {
+		XentNodeId node = ctx->dirty_nodes [i];
+		if (xent_is_valid_node(ctx, node)
+			&& xent_is_layout_dirty(ctx->nodes.layout.dirty_flags [node])
+			&& xent_is_in_subtree(ctx, root, node))
+		{
+			plan->direct_dirty [write++] = node;
+		}
+	}
+	plan->direct_count = write;
 }
 
-bool xent_set_size(XentContext *ctx, XentNodeId node, float width, float height) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return false;
-    }
-    ctx->nodes.style_w[node] = width;
-    ctx->nodes.style_h[node] = height;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
+static bool xent_root_has_valid_layout(XentContext const *ctx, XentNodeId root) {
+	return isfinite(ctx->nodes.layout.decided_w [root])
+	    && ctx->nodes.layout.decided_w [root] >= 0.0f
+	    && isfinite(ctx->nodes.layout.decided_h [root])
+	    && ctx->nodes.layout.decided_h [root] >= 0.0f;
 }
 
-bool xent_set_min_size(XentContext *ctx, XentNodeId node, float min_width, float min_height) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return false;
-    }
-    ctx->nodes.min_w[node] = min_width;
-    ctx->nodes.min_h[node] = min_height;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
+static bool xent_measure_dirty_plan_cost(XentContext const *ctx, XentDirtyPlan *plan, uint32_t total_nodes) {
+	plan->affected_nodes = 0u;
+	for (uint32_t i = 0; i < plan->root_count; ++i) {
+		XentNodeId root = plan->roots [i];
+		if (!xent_root_has_valid_layout(ctx, root)) return false;
+
+		uint32_t subtree_nodes = xent_count_subtree_nodes(ctx, root, plan->stack, total_nodes);
+		if (subtree_nodes == 0u) return false;
+		plan->affected_nodes += subtree_nodes;
+	}
+	return true;
 }
 
-bool xent_set_max_size(XentContext *ctx, XentNodeId node, float max_width, float max_height) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return false;
-    }
-    ctx->nodes.max_w[node] = max_width;
-    ctx->nodes.max_h[node] = max_height;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
+static bool xent_build_dirty_plan(
+  XentContext *ctx, XentNodeId root, uint32_t total_nodes, uint32_t direct_dirty_count, XentDirtyPlan *plan
+) {
+	*plan              = (XentDirtyPlan) {0};
+	plan->direct_count = direct_dirty_count;
+	plan->strategy     = XENT_LAYOUT_STRATEGY_FULL_TREE;
+
+	if (direct_dirty_count == 0u || total_nodes == 0u) return false;
+	if (!xent_alloc_dirty_plan(ctx, plan, total_nodes)) return false;
+
+	xent_collect_dirty_nodes(ctx, root, plan);
+	plan->root_count = xent_collect_recompute_roots(ctx, root, plan->direct_dirty, plan->direct_count, plan->roots);
+	if (plan->root_count == 0u) return false;
+	if (!xent_measure_dirty_plan_cost(ctx, plan, total_nodes)) return false;
+	if ((plan->affected_nodes + 1u) >= total_nodes) return false;
+
+	plan->strategy = XENT_LAYOUT_STRATEGY_DIRTY_SUBTREE;
+	return true;
 }
 
-bool xent_set_margin(XentContext *ctx, XentNodeId node, float left, float top, float right, float bottom) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return false;
-    }
-    ctx->nodes.margin_l[node] = left;
-    ctx->nodes.margin_t[node] = top;
-    ctx->nodes.margin_r[node] = right;
-    ctx->nodes.margin_b[node] = bottom;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
+static void xent_run_dirty_plan(XentContext *ctx, XentDirtyPlan const *plan) {
+	for (uint32_t i = 0; i < plan->root_count; ++i) {
+		XentNodeId root     = plan->roots [i];
+		float      origin_x = ctx->nodes.layout.abs_x [root] - ctx->nodes.layout.abs_pos_x [root];
+		float      origin_y = ctx->nodes.layout.abs_y [root] - ctx->nodes.layout.abs_pos_y [root];
+		xent_layout_dispatch_node(&(XentLayoutRequest) {
+		  ctx, root, ctx->nodes.layout.decided_w [root], ctx->nodes.layout.decided_h [root], origin_x, origin_y});
+	}
 }
 
-bool xent_set_padding(XentContext *ctx, XentNodeId node, float left, float top, float right, float bottom) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return false;
-    }
-    ctx->nodes.padding_l[node] = left;
-    ctx->nodes.padding_t[node] = top;
-    ctx->nodes.padding_r[node] = right;
-    ctx->nodes.padding_b[node] = bottom;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
+typedef struct XentLayoutPlanInputs {
+	XentNodeId root;
+	float      available_width;
+	float      available_height;
+	uint32_t   total_nodes;
+	uint32_t   direct_dirty_count;
+} XentLayoutPlanInputs;
+
+static XentLayoutStrategy
+xent_select_layout_strategy(XentContext *ctx, XentLayoutPlanInputs const *inputs, XentDirtyPlan *dirty_plan) {
+	bool root_dirty = xent_is_layout_dirty(ctx->nodes.layout.dirty_flags [inputs->root]);
+	bool snapshot_valid
+	  = xent_can_reuse_root_snapshot(ctx, inputs->root, inputs->available_width, inputs->available_height);
+
+	if (!root_dirty && snapshot_valid && inputs->direct_dirty_count == 0u) return XENT_LAYOUT_STRATEGY_NONE;
+	if (!root_dirty
+		&& snapshot_valid
+		&& xent_build_dirty_plan(ctx, inputs->root, inputs->total_nodes, inputs->direct_dirty_count, dirty_plan))
+		return XENT_LAYOUT_STRATEGY_DIRTY_SUBTREE;
+	return XENT_LAYOUT_STRATEGY_FULL_TREE;
 }
 
-bool xent_set_absolute_position(XentContext *ctx, XentNodeId node, float x, float y) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return false;
-    }
-    ctx->nodes.abs_pos_x[node] = x;
-    ctx->nodes.abs_pos_y[node] = y;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
-}
-
-bool xent_set_gap(XentContext *ctx, XentNodeId node, float gap) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return false;
-    }
-    ctx->nodes.gap[node] = gap < 0.0f ? 0.0f : gap;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
-}
-
-bool xent_set_flex_grow(XentContext *ctx, XentNodeId node, float grow) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return false;
-    }
-    ctx->nodes.flex_grow[node] = grow < 0.0f ? 0.0f : grow;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
-}
-
-bool xent_set_flex_shrink(XentContext *ctx, XentNodeId node, float shrink) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return false;
-    }
-    ctx->nodes.flex_shrink[node] = shrink < 0.0f ? 0.0f : shrink;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
-}
-
-bool xent_set_flex_basis(XentContext *ctx, XentNodeId node, float basis) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return false;
-    }
-    ctx->nodes.flex_basis[node] = basis;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
-}
-
-bool xent_set_flex_direction(XentContext *ctx, XentNodeId node, XentFlexDirection direction) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return false;
-    }
-    ctx->nodes.flex_direction[node] = (uint8_t)direction;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
-}
-
-bool xent_set_flex_wrap(XentContext *ctx, XentNodeId node, XentFlexWrap wrap) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return false;
-    }
-    ctx->nodes.flex_wrap[node] = (uint8_t)wrap;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
-}
-
-bool xent_set_flex_justify_content(XentContext *ctx, XentNodeId node, XentFlexJustify justify) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return false;
-    }
-    ctx->nodes.flex_justify_content[node] = (uint8_t)justify;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
-}
-
-bool xent_set_flex_align_items(XentContext *ctx, XentNodeId node, XentFlexAlign align_items) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return false;
-    }
-    ctx->nodes.flex_align_items[node] = (uint8_t)align_items;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
-}
-
-bool xent_set_flex_align_self(XentContext *ctx, XentNodeId node, XentFlexAlign align_self) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return false;
-    }
-    ctx->nodes.flex_align_self[node] = (uint8_t)align_self;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
-}
-
-bool xent_set_flex_align_content(XentContext *ctx, XentNodeId node, XentFlexAlignContent align_content) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return false;
-    }
-    ctx->nodes.flex_align_content[node] = (uint8_t)align_content;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
-}
-
-bool xent_set_stack_axis(XentContext *ctx, XentNodeId node, XentAxis axis) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return false;
-    }
-    ctx->nodes.stack_axis[node] = (uint8_t)axis;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
-}
-
-bool xent_set_stack_alignment(XentContext *ctx, XentNodeId node, XentStackAlign alignment) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return false;
-    }
-    if (alignment != XENT_STACK_ALIGN_START && alignment != XENT_STACK_ALIGN_BASELINE) {
-        return false;
-    }
-    ctx->nodes.stack_align[node] = (uint8_t)alignment;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
-}
-
-XentStackAlign xent_get_stack_alignment(const XentContext *ctx, XentNodeId node) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return XENT_STACK_ALIGN_START;
-    }
-    return (XentStackAlign)ctx->nodes.stack_align[node];
-}
-
-bool xent_set_layout_priority(XentContext *ctx, XentNodeId node, float priority) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return false;
-    }
-    ctx->nodes.layout_priority[node] = priority;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
-}
-
-bool xent_set_is_spacer(XentContext *ctx, XentNodeId node, bool is_spacer) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return false;
-    }
-    ctx->nodes.is_spacer[node] = is_spacer ? 1u : 0u;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
-}
-
-bool xent_set_point_scale_factor(XentContext *ctx, float point_scale_factor) {
-    if (!ctx || !(point_scale_factor > 0.0f) || !isfinite(point_scale_factor)) {
-        return false;
-    }
-    if (ctx->config.point_scale_factor != point_scale_factor) {
-        ctx->config.point_scale_factor = point_scale_factor;
-        xent_invalidate_all_layout(ctx);
-    }
-    return true;
-}
-
-float xent_get_point_scale_factor(const XentContext *ctx) {
-    if (!ctx) {
-        return 1.0f;
-    }
-    return ctx->config.point_scale_factor;
-}
-
-bool xent_set_pixel_rounding_enabled(XentContext *ctx, bool enabled) {
-    if (!ctx) {
-        return false;
-    }
-    if (ctx->config.enable_pixel_rounding != enabled) {
-        ctx->config.enable_pixel_rounding = enabled;
-        xent_invalidate_all_layout(ctx);
-    }
-    return true;
-}
-
-bool xent_is_pixel_rounding_enabled(const XentContext *ctx) {
-    if (!ctx) {
-        return false;
-    }
-    return ctx->config.enable_pixel_rounding;
-}
-
-XentProtocol xent_get_protocol(const XentContext *ctx, XentNodeId node) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return XENT_PROTOCOL_ABSOLUTE;
-    }
-    return (XentProtocol)ctx->nodes.protocol[node];
-}
-
-static bool xent_is_layout_dirty(uint32_t flags) {
-    return (flags & (XENT_DIRTY_LAYOUT | XENT_DIRTY_SELF)) != 0u;
-}
-
-static bool xent_is_auto_sized_parent(const XentContext *ctx, XentNodeId node) {
-    return isnan(ctx->nodes.style_w[node]) || isnan(ctx->nodes.style_h[node]);
-}
-
-static XentNodeId xent_promote_dirty_root(const XentContext *ctx, XentNodeId dirty_node, XentNodeId root) {
-    XentNodeId candidate = dirty_node;
-    XentNodeId parent = ctx->nodes.parent[candidate];
-    while (parent != XENT_NODE_INVALID && parent != root) {
-        XentProtocol protocol = (XentProtocol)ctx->nodes.protocol[parent];
-        if ((protocol == XENT_PROTOCOL_FLEX || protocol == XENT_PROTOCOL_SWIFTSTACK) &&
-            xent_is_auto_sized_parent(ctx, parent)) {
-            candidate = parent;
-            parent = ctx->nodes.parent[candidate];
-            continue;
-        }
-        break;
-    }
-    return candidate;
-}
-
-static bool xent_is_ancestor_of(const XentContext *ctx, XentNodeId maybe_ancestor, XentNodeId node) {
-    XentNodeId cursor = ctx->nodes.parent[node];
-    while (cursor != XENT_NODE_INVALID) {
-        if (cursor == maybe_ancestor) {
-            return true;
-        }
-        cursor = ctx->nodes.parent[cursor];
-    }
-    return false;
-}
-
-static uint32_t xent_collect_recompute_roots(const XentContext *ctx,
-                                             XentNodeId root,
-                                             const XentNodeId *direct_dirty,
-                                             uint32_t direct_count,
-                                             XentNodeId *out_roots) {
-    uint32_t root_count = 0u;
-    for (uint32_t i = 0; i < direct_count; ++i) {
-        XentNodeId promoted = xent_promote_dirty_root(ctx, direct_dirty[i], root);
-        if (promoted == root) {
-            return 0u;
-        }
-
-        bool duplicate = false;
-        for (uint32_t j = 0; j < root_count; ++j) {
-            if (out_roots[j] == promoted) {
-                duplicate = true;
-                break;
-            }
-        }
-        if (!duplicate) {
-            out_roots[root_count++] = promoted;
-        }
-    }
-
-    /* Keep only highest roots; if A contains B, recomputing A covers B. */
-    for (uint32_t i = 0; i < root_count; ++i) {
-        if (out_roots[i] == XENT_NODE_INVALID) {
-            continue;
-        }
-        for (uint32_t j = 0; j < root_count; ++j) {
-            if (i == j || out_roots[j] == XENT_NODE_INVALID) {
-                continue;
-            }
-            if (xent_is_ancestor_of(ctx, out_roots[j], out_roots[i])) {
-                out_roots[i] = XENT_NODE_INVALID;
-                break;
-            }
-        }
-    }
-
-    uint32_t compact = 0u;
-    for (uint32_t i = 0; i < root_count; ++i) {
-        if (out_roots[i] != XENT_NODE_INVALID) {
-            out_roots[compact++] = out_roots[i];
-        }
-    }
-    return compact;
-}
-
-static bool xent_can_reuse_root_snapshot(const XentContext *ctx,
-                                         XentNodeId root,
-                                         float available_width,
-                                         float available_height) {
-    if (ctx->last_layout_root != root) {
-        return false;
-    }
-    if (!isfinite(ctx->nodes.decided_w[root]) || ctx->nodes.decided_w[root] < 0.0f ||
-        !isfinite(ctx->nodes.decided_h[root]) || ctx->nodes.decided_h[root] < 0.0f) {
-        return false;
-    }
-    if (!isfinite(ctx->last_layout_available_w) || !isfinite(ctx->last_layout_available_h)) {
-        return false;
-    }
-    return ctx->last_layout_available_w == available_width && ctx->last_layout_available_h == available_height;
-}
-
-static uint32_t xent_count_subtree_nodes(const XentContext *ctx,
-                                         XentNodeId root,
-                                         XentNodeId *stack,
-                                         uint32_t stack_capacity) {
-    if (!stack || stack_capacity == 0u || !xent_is_valid_node(ctx, root)) {
-        return 0u;
-    }
-
-    uint32_t count = 0u;
-    uint32_t stack_size = 0u;
-    stack[stack_size++] = root;
-
-    while (stack_size > 0u) {
-        XentNodeId node = stack[--stack_size];
-        count += 1u;
-
-        for (XentNodeId child = ctx->nodes.first_child[node]; child != XENT_NODE_INVALID;
-             child = ctx->nodes.next_sibling[child]) {
-            if (stack_size >= stack_capacity) {
-                return 0u;
-            }
-            stack[stack_size++] = child;
-        }
-    }
-
-    return count;
+static void xent_run_selected_layout(
+  XentContext *ctx, XentLayoutPlanInputs const *inputs, XentLayoutStrategy strategy, XentDirtyPlan const *dirty_plan
+) {
+	if (strategy == XENT_LAYOUT_STRATEGY_DIRTY_SUBTREE) {
+		xent_run_dirty_plan(ctx, dirty_plan);
+		return;
+	}
+	if (strategy == XENT_LAYOUT_STRATEGY_FULL_TREE)
+		xent_layout_dispatch_node(&(XentLayoutRequest) {
+		  ctx, inputs->root, inputs->available_width, inputs->available_height, 0.0f, 0.0f});
 }
 
 bool xent_layout(XentContext *ctx, XentNodeId root, float available_width, float available_height) {
-    if (!xent_is_valid_node(ctx, root)) {
-        return false;
-    }
+	if (!xent_is_valid_node(ctx, root)) return false;
 
-    if (!xent_build_preorder(ctx, root)) {
-        return false;
-    }
+	xent_scratch_reset(ctx);
 
-    xent_scratch_reset(ctx);
+	uint32_t             direct_dirty_count = xent_count_dirty_nodes(ctx, root);
+	XentLayoutPlanInputs inputs
+	  = {root, available_width, available_height, ctx->last_layout_node_count, direct_dirty_count};
+	XentDirtyPlan      dirty_plan = {0};
+	XentLayoutStrategy strategy   = xent_select_layout_strategy(ctx, &inputs, &dirty_plan);
 
-    const uint32_t total_nodes = ctx->work_count;
-    bool did_subtree_recompute = false;
-    XentLayoutStrategy strategy = XENT_LAYOUT_STRATEGY_FULL_TREE;
+	if (strategy == XENT_LAYOUT_STRATEGY_FULL_TREE) {
+		if (!xent_build_preorder(ctx, root)) return false;
+		inputs.total_nodes = ctx->work_count;
+	}
+	else if (strategy == XENT_LAYOUT_STRATEGY_DIRTY_SUBTREE) {
+		if (!xent_build_preorder_roots(ctx, dirty_plan.roots, dirty_plan.root_count)) return false;
+	}
+	else { ctx->work_count = 0u; }
 
-    uint32_t direct_dirty_count = 0u;
-    for (uint32_t i = 0; i < total_nodes; ++i) {
-        XentNodeId node = ctx->work_order[i];
-        if (xent_is_layout_dirty(ctx->nodes.dirty_flags[node])) {
-            direct_dirty_count += 1u;
-        }
-    }
+	xent_run_selected_layout(ctx, &inputs, strategy, &dirty_plan);
 
-    bool root_layout_dirty = xent_is_layout_dirty(ctx->nodes.dirty_flags[root]);
-    bool snapshot_valid = xent_can_reuse_root_snapshot(ctx, root, available_width, available_height);
-
-    if (!root_layout_dirty && snapshot_valid && direct_dirty_count == 0u) {
-        strategy = XENT_LAYOUT_STRATEGY_NONE;
-    } else if (!root_layout_dirty && snapshot_valid && direct_dirty_count > 0u && total_nodes > 0u) {
-        XentNodeId *direct_dirty =
-            (XentNodeId *)xent_scratch_alloc(ctx, sizeof(XentNodeId) * (size_t)direct_dirty_count, _Alignof(XentNodeId));
-        XentNodeId *roots =
-            (XentNodeId *)xent_scratch_alloc(ctx, sizeof(XentNodeId) * (size_t)direct_dirty_count, _Alignof(XentNodeId));
-        XentNodeId *stack =
-            (XentNodeId *)xent_scratch_alloc(ctx, sizeof(XentNodeId) * (size_t)total_nodes, _Alignof(XentNodeId));
-
-        if (direct_dirty && roots && stack) {
-            uint32_t write = 0u;
-            for (uint32_t i = 0; i < total_nodes; ++i) {
-                XentNodeId node = ctx->work_order[i];
-                if (xent_is_layout_dirty(ctx->nodes.dirty_flags[node])) {
-                    direct_dirty[write++] = node;
-                }
-            }
-
-            uint32_t root_count = xent_collect_recompute_roots(ctx, root, direct_dirty, write, roots);
-            if (root_count > 0u) {
-                bool roots_valid = true;
-                uint32_t affected_nodes = 0u;
-
-                for (uint32_t i = 0; i < root_count; ++i) {
-                    XentNodeId r = roots[i];
-                    if (!isfinite(ctx->nodes.decided_w[r]) || ctx->nodes.decided_w[r] < 0.0f ||
-                        !isfinite(ctx->nodes.decided_h[r]) || ctx->nodes.decided_h[r] < 0.0f) {
-                        roots_valid = false;
-                        break;
-                    }
-
-                    uint32_t subtree_nodes = xent_count_subtree_nodes(ctx, r, stack, total_nodes);
-                    if (subtree_nodes == 0u) {
-                        roots_valid = false;
-                        break;
-                    }
-                    affected_nodes += subtree_nodes;
-                }
-
-                if (roots_valid && (affected_nodes + 1u) < total_nodes) {
-                    for (uint32_t i = 0; i < root_count; ++i) {
-                        XentNodeId r = roots[i];
-                        float origin_x = ctx->nodes.abs_x[r] - ctx->nodes.abs_pos_x[r];
-                        float origin_y = ctx->nodes.abs_y[r] - ctx->nodes.abs_pos_y[r];
-                        xent_layout_dispatch_node(ctx, r, ctx->nodes.decided_w[r], ctx->nodes.decided_h[r], origin_x, origin_y);
-                    }
-                    did_subtree_recompute = true;
-                    strategy = XENT_LAYOUT_STRATEGY_DIRTY_SUBTREE;
-                }
-            }
-        }
-    }
-
-    if (!did_subtree_recompute && strategy == XENT_LAYOUT_STRATEGY_FULL_TREE) {
-        xent_layout_dispatch_node(ctx, root, available_width, available_height, 0.0f, 0.0f);
-        strategy = XENT_LAYOUT_STRATEGY_FULL_TREE;
-    }
-
-    xent_clear_dirty_in_work_order(ctx);
-    ctx->last_layout_root = root;
-    ctx->last_layout_available_w = available_width;
-    ctx->last_layout_available_h = available_height;
-    ctx->last_layout_strategy = (uint8_t)strategy;
-    return true;
-}
-
-bool xent_get_layout_rect(const XentContext *ctx, XentNodeId node, XentRect *out_rect) {
-    if (!xent_is_valid_node(ctx, node) || !out_rect) {
-        return false;
-    }
-    out_rect->x = ctx->nodes.abs_x[node];
-    out_rect->y = ctx->nodes.abs_y[node];
-    out_rect->width = ctx->nodes.decided_w[node];
-    out_rect->height = ctx->nodes.decided_h[node];
-    return true;
-}
-
-XentNodeId xent_get_last_layout_root(const XentContext *ctx) {
-    if (!ctx) {
-        return XENT_NODE_INVALID;
-    }
-    return ctx->last_layout_root;
-}
-
-float xent_get_layout_priority(const XentContext *ctx, XentNodeId node) {
-    if (!xent_is_valid_node(ctx, node)) {
-        return 0.0f;
-    }
-    return ctx->nodes.layout_priority[node];
-}
-
-XentLayoutStrategy xent_get_last_layout_strategy(const XentContext *ctx) {
-    if (!ctx) {
-        return XENT_LAYOUT_STRATEGY_NONE;
-    }
-    return (XentLayoutStrategy)ctx->last_layout_strategy;
-}
-
-/* ── Grid layout API ────────────────────────────────────────────────── */
-
-static XentGridDef *xent_ensure_grid_def(XentContext *ctx, XentNodeId node) {
-    if (!ctx->nodes.grid_def[node]) {
-        XentGridDef *def = (XentGridDef *)calloc(1, sizeof(XentGridDef));
-        if (!def) return NULL;
-        ctx->nodes.grid_def[node] = def;
-    }
-    return ctx->nodes.grid_def[node];
-}
-
-bool xent_set_grid_rows(XentContext *ctx, XentNodeId node,
-                        const XentGridSizeMode *modes, const float *values,
-                        uint32_t count) {
-    if (!xent_is_valid_node(ctx, node) || count > XENT_GRID_MAX_TRACKS) {
-        return false;
-    }
-    XentGridDef *def = xent_ensure_grid_def(ctx, node);
-    if (!def) return false;
-    def->row_count = (uint8_t)count;
-    for (uint32_t i = 0; i < count; ++i) {
-        def->row_modes[i] = (uint8_t)modes[i];
-        def->row_values[i] = values[i];
-    }
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
-}
-
-bool xent_set_grid_columns(XentContext *ctx, XentNodeId node,
-                           const XentGridSizeMode *modes, const float *values,
-                           uint32_t count) {
-    if (!xent_is_valid_node(ctx, node) || count > XENT_GRID_MAX_TRACKS) {
-        return false;
-    }
-    XentGridDef *def = xent_ensure_grid_def(ctx, node);
-    if (!def) return false;
-    def->col_count = (uint8_t)count;
-    for (uint32_t i = 0; i < count; ++i) {
-        def->col_modes[i] = (uint8_t)modes[i];
-        def->col_values[i] = values[i];
-    }
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
-}
-
-bool xent_set_grid_row(XentContext *ctx, XentNodeId node, uint32_t row) {
-    if (!xent_is_valid_node(ctx, node)) return false;
-    ctx->nodes.grid_row[node] = (uint16_t)row;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
-}
-
-bool xent_set_grid_column(XentContext *ctx, XentNodeId node, uint32_t column) {
-    if (!xent_is_valid_node(ctx, node)) return false;
-    ctx->nodes.grid_column[node] = (uint16_t)column;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
-}
-
-bool xent_set_grid_row_span(XentContext *ctx, XentNodeId node, uint32_t span) {
-    if (!xent_is_valid_node(ctx, node) || span == 0) return false;
-    ctx->nodes.grid_row_span[node] = (uint16_t)span;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
-}
-
-bool xent_set_grid_column_span(XentContext *ctx, XentNodeId node, uint32_t span) {
-    if (!xent_is_valid_node(ctx, node) || span == 0) return false;
-    ctx->nodes.grid_column_span[node] = (uint16_t)span;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
-}
-
-bool xent_set_grid_row_gap(XentContext *ctx, XentNodeId node, float gap) {
-    if (!xent_is_valid_node(ctx, node)) return false;
-    XentGridDef *def = xent_ensure_grid_def(ctx, node);
-    if (!def) return false;
-    def->row_gap = gap;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
-}
-
-bool xent_set_grid_column_gap(XentContext *ctx, XentNodeId node, float gap) {
-    if (!xent_is_valid_node(ctx, node)) return false;
-    XentGridDef *def = xent_ensure_grid_def(ctx, node);
-    if (!def) return false;
-    def->col_gap = gap;
-    xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
-    return true;
-}
-
-uint32_t xent_get_grid_row(const XentContext *ctx, XentNodeId node) {
-    if (!xent_is_valid_node(ctx, node)) return 0;
-    return ctx->nodes.grid_row[node];
-}
-
-uint32_t xent_get_grid_column(const XentContext *ctx, XentNodeId node) {
-    if (!xent_is_valid_node(ctx, node)) return 0;
-    return ctx->nodes.grid_column[node];
-}
-
-uint32_t xent_get_grid_row_span(const XentContext *ctx, XentNodeId node) {
-    if (!xent_is_valid_node(ctx, node)) return 1;
-    return ctx->nodes.grid_row_span[node];
-}
-
-uint32_t xent_get_grid_column_span(const XentContext *ctx, XentNodeId node) {
-    if (!xent_is_valid_node(ctx, node)) return 1;
-    return ctx->nodes.grid_column_span[node];
+	if (ctx->work_count > 0u) xent_clear_dirty_in_work_order(ctx);
+	else xent_compact_dirty_nodes(ctx);
+	ctx->last_layout_root        = root;
+	ctx->last_layout_available_w = available_width;
+	ctx->last_layout_available_h = available_height;
+	ctx->last_layout_strategy    = ( uint8_t ) strategy;
+	if (strategy == XENT_LAYOUT_STRATEGY_FULL_TREE) ctx->last_layout_node_count = inputs.total_nodes;
+	return true;
 }

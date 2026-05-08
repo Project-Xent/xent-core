@@ -1,64 +1,47 @@
 #include "../xent_internal.h"
 
 #if XENT_ISPC_ENABLED
-#include "xent_ispc_kernels_ispc.h"
-/* ISPC-generated COFF objects reference _fltused (an MSVC CRT symbol) when
-   floating-point operations are present.  MinGW does not provide it, so we
-   define it here to satisfy the linker.  The value 0x9875 is the traditional
-   MSVC sentinel. */
-#ifdef __MINGW32__
+  #include "xent_ispc_kernels_ispc.h"
+  /* ISPC-generated COFF objects reference _fltused (an MSVC CRT symbol) when
+     floating-point operations are present.  MinGW does not provide it, so we
+     define it here to satisfy the linker.  The value 0x9875 is the traditional
+     MSVC sentinel. */
+  #ifdef __MINGW32__
 int _fltused = 0x9875;
-#endif
+  #endif
 #endif
 
-static float xent_scalar_sum_f32(const float *values, uint32_t count) {
-    float sum = 0.0f;
-    for (uint32_t i = 0; i < count; ++i) {
-        sum += values[i];
-    }
-    return sum;
+static float xent_scalar_sum_f32(float const *values, uint32_t count) {
+	float sum = 0.0f;
+	for (uint32_t i = 0; i < count; ++i) sum += values [i];
+	return sum;
 }
 
 static void xent_scalar_fill_f32(float *values, uint32_t count, float value) {
-    for (uint32_t i = 0; i < count; ++i) {
-        values[i] = value;
-    }
+	for (uint32_t i = 0; i < count; ++i) values [i] = value;
 }
 
 bool xent_is_simd_enabled(void) {
 #if XENT_ISPC_ENABLED
-    return true;
+	return true;
 #else
-    return false;
+	return false;
 #endif
 }
 
-/* Keep the old name as an alias so downstream code keeps compiling. */
-bool xent_is_highway_enabled(void) {
-    return xent_is_simd_enabled();
-}
+bool  xent_is_highway_enabled(void) { return xent_is_simd_enabled(); }
 
-float xent_simd_sum_f32(const float *values, uint32_t count) {
-    if (!values || count == 0u) {
-        return 0.0f;
-    }
+float xent_simd_sum_f32(float const *values, uint32_t count) {
+	if (!values || count == 0u) return 0.0f;
 #if XENT_ISPC_ENABLED
-    /*
-     * ISPC multi-target dispatch is cheap; lower the threshold compared to
-     * the old Highway path so more arrays benefit from vectorisation.
-     */
-    if (count < 256u) {
-        return xent_scalar_sum_f32(values, count);
-    }
-    return xent_ispc_sum_f32(values, count);
+	if (count < 256u) return xent_scalar_sum_f32(values, count);
+	return xent_ispc_sum_f32(values, count);
 #else
-    return xent_scalar_sum_f32(values, count);
+	return xent_scalar_sum_f32(values, count);
 #endif
 }
 
 void xent_simd_fill_f32(float *values, uint32_t count, float value) {
-    if (!values || count == 0u) {
-        return;
-    }
-    xent_scalar_fill_f32(values, count, value);
+	if (!values || count == 0u) return;
+	xent_scalar_fill_f32(values, count, value);
 }

@@ -1,356 +1,283 @@
 #include "../xent_internal.h"
 
-/*
- * Grid layout algorithm (WinUI 3 semantics).
- *
- * Track sizing is resolved in three passes per axis:
- *   1. Auto tracks  – sized to the maximum intrinsic size of their children.
- *   2. Pixel tracks – fixed to the value given in the grid definition.
- *   3. Star tracks  – proportional share of the remaining space.
- *
- * Children are placed into cells according to grid_row / grid_column and may
- * span multiple rows / columns via grid_row_span / grid_column_span.
- */
-
-/* ------------------------------------------------------------------ */
-/* helpers                                                             */
-/* ------------------------------------------------------------------ */
-
-static float maxf(float a, float b) {
-    return a > b ? a : b;
-}
-
-/* Clamp a track index so it never exceeds (track_count - 1). */
-static uint16_t clamp_track(uint16_t idx, uint8_t track_count) {
-    if (idx >= track_count) {
-        return (uint16_t)(track_count - 1u);
-    }
-    return idx;
-}
-
-/* Clamp a span so that (idx + span) never exceeds track_count. */
-static uint16_t clamp_span(uint16_t idx, uint16_t span, uint8_t track_count) {
-    if (span == 0u) {
-        span = 1u;
-    }
-    if (idx + span > track_count) {
-        span = (uint16_t)(track_count - idx);
-    }
-    if (span == 0u) {
-        span = 1u;
-    }
-    return span;
-}
-
-/* Sum track sizes and inter-track gaps for a contiguous span.
- * For a span of N tracks starting at `start`, there are (N - 1) gaps. */
-static float span_extent(const float *sizes, const float *positions,
-                         uint16_t start, uint16_t span, float gap) {
-    (void)positions;
-    float total = 0.0f;
-    for (uint16_t i = 0; i < span; i++) {
-        total += sizes[start + i];
-    }
-    if (span > 1u) {
-        total += gap * (float)(span - 1u);
-    }
-    return total;
-}
-
-/* ------------------------------------------------------------------ */
-/* resolve_tracks – three-pass algorithm for one axis                  */
-/* ------------------------------------------------------------------ */
-
-static void resolve_tracks(
-    XentContext *ctx,
-    XentNodeId container,
-    uint8_t track_count,
-    const uint8_t *modes,
-    const float *values,
-    float gap,
-    float available,
-    /* axis == 0 → columns, axis == 1 → rows */
-    int axis,
-    float *out_sizes)
+typedef enum GridAxis
 {
-    float total_gap = (track_count > 1u) ? gap * (float)(track_count - 1u) : 0.0f;
-    float remaining = available - total_gap;
-    if (remaining < 0.0f) {
-        remaining = 0.0f;
-    }
+	GRID_AXIS_COLUMNS,
+	GRID_AXIS_ROWS,
+} GridAxis;
 
-    /* Initialise all track sizes to zero. */
-    for (uint8_t i = 0; i < track_count; i++) {
-        out_sizes[i] = 0.0f;
-    }
+typedef struct GridTrackSet {
+	uint8_t        count;
+	uint8_t const *modes;
+	float const   *values;
+	uint8_t        modes_buf [XENT_GRID_MAX_TRACKS];
+	float          values_buf [XENT_GRID_MAX_TRACKS];
+	float          gap;
+	float          available;
+	float          sizes [XENT_GRID_MAX_TRACKS];
+	float          positions [XENT_GRID_MAX_TRACKS];
+} GridTrackSet;
 
-    /* ------- Pass 1: Auto tracks ------- */
-    for (uint8_t t = 0; t < track_count; t++) {
-        if (modes[t] != (uint8_t)XENT_GRID_AUTO) {
-            continue;
-        }
-        float max_size = 0.0f;
+typedef struct GridLayoutFrame {
+	XentNodeId node;
+	float      content_x;
+	float      content_y;
+	float      content_w;
+	float      content_h;
+} GridLayoutFrame;
 
-        XentNodeId child = ctx->nodes.first_child[container];
-        while (child != XENT_NODE_INVALID) {
-            uint16_t cidx, cspan;
-            if (axis == 0) {
-                /* columns */
-                cidx = clamp_track(ctx->nodes.grid_column[child], track_count);
-                cspan = clamp_span(cidx, ctx->nodes.grid_column_span[child], track_count);
-            } else {
-                /* rows */
-                cidx = clamp_track(ctx->nodes.grid_row[child], track_count);
-                cspan = clamp_span(cidx, ctx->nodes.grid_row_span[child], track_count);
-            }
+typedef struct GridAxisPlacement {
+	uint16_t index;
+	uint16_t span;
+} GridAxisPlacement;
 
-            /* Only consider children that actually sit in this track and
-             * don't span multiple tracks (spanning children are trickier –
-             * we attribute their size only when they occupy a single auto
-             * track in this axis to keep the algorithm simple & WinUI-like). */
-            if (cidx == t && cspan == 1u) {
-                float ml = ctx->nodes.margin_l[child];
-                float mr = ctx->nodes.margin_r[child];
-                float mt = ctx->nodes.margin_t[child];
-                float mb = ctx->nodes.margin_b[child];
+typedef struct GridChildPlacement {
+	GridAxisPlacement column;
+	GridAxisPlacement row;
+	float             cell_x;
+	float             cell_y;
+	float             cell_w;
+	float             cell_h;
+	float             margin_l;
+	float             margin_t;
+	float             margin_r;
+	float             margin_b;
+} GridChildPlacement;
 
-                float child_avail_w = available;
-                float child_avail_h = available;
+static float    maxf(float a, float b) { return a > b ? a : b; }
 
-                float intr_w = 0.0f;
-                float intr_h = 0.0f;
-                xent_compute_intrinsic_size(ctx, child,
-                                            child_avail_w, child_avail_h,
-                                            &intr_w, &intr_h);
-
-                float needed;
-                if (axis == 0) {
-                    needed = intr_w + ml + mr;
-                } else {
-                    needed = intr_h + mt + mb;
-                }
-                if (needed > max_size) {
-                    max_size = needed;
-                }
-            }
-            child = ctx->nodes.next_sibling[child];
-        }
-        out_sizes[t] = max_size;
-    }
-
-    /* ------- Pass 2: Pixel tracks ------- */
-    for (uint8_t t = 0; t < track_count; t++) {
-        if (modes[t] == (uint8_t)XENT_GRID_PIXEL) {
-            out_sizes[t] = maxf(values[t], 0.0f);
-        }
-    }
-
-    /* Compute space consumed by auto + pixel tracks so far. */
-    float used = 0.0f;
-    for (uint8_t t = 0; t < track_count; t++) {
-        if (modes[t] != (uint8_t)XENT_GRID_STAR) {
-            used += out_sizes[t];
-        }
-    }
-
-    /* ------- Pass 3: Star tracks ------- */
-    float star_space = remaining - used;
-    if (star_space < 0.0f) {
-        star_space = 0.0f;
-    }
-
-    float total_stars = 0.0f;
-    for (uint8_t t = 0; t < track_count; t++) {
-        if (modes[t] == (uint8_t)XENT_GRID_STAR) {
-            float sv = values[t];
-            if (sv <= 0.0f) {
-                sv = 1.0f; /* default star weight */
-            }
-            total_stars += sv;
-        }
-    }
-
-    if (total_stars > 0.0f) {
-        for (uint8_t t = 0; t < track_count; t++) {
-            if (modes[t] == (uint8_t)XENT_GRID_STAR) {
-                float sv = values[t];
-                if (sv <= 0.0f) {
-                    sv = 1.0f;
-                }
-                out_sizes[t] = star_space * (sv / total_stars);
-            }
-        }
-    }
+static uint16_t clamp_track(uint16_t idx, uint8_t track_count) {
+	if (idx >= track_count) return ( uint16_t ) (track_count - 1u);
+	return idx;
 }
 
-/* ------------------------------------------------------------------ */
-/* compute_positions – running sum of sizes + gaps                     */
-/* ------------------------------------------------------------------ */
-
-static void compute_positions(const float *sizes, uint8_t count, float gap,
-                              float origin, float *out_positions) {
-    float pos = origin;
-    for (uint8_t i = 0; i < count; i++) {
-        out_positions[i] = pos;
-        pos += sizes[i] + gap;
-    }
+static uint16_t clamp_span(uint16_t idx, uint16_t span, uint8_t track_count) {
+	if (span == 0u) span = 1u;
+	if (idx + span > track_count) span = ( uint16_t ) (track_count - idx);
+	return span == 0u ? 1u : span;
 }
 
-/* ------------------------------------------------------------------ */
-/* xent_layout_node_grid                                               */
-/* ------------------------------------------------------------------ */
+static float span_extent(float const *sizes, uint16_t start, uint16_t span, float gap) {
+	float total = 0.0f;
+	for (uint16_t i = 0u; i < span; ++i) total += sizes [start + i];
+	if (span > 1u) total += gap * ( float ) (span - 1u);
+	return total;
+}
 
-void xent_layout_node_grid(XentContext *ctx,
-                           XentNodeId node,
-                           float available_w,
-                           float available_h,
-                           float origin_x,
-                           float origin_y) {
-    /* ---- Step 1: compute the grid container's own size ---- */
-    float width = 0.0f;
-    float height = 0.0f;
-    xent_compute_intrinsic_size(ctx, node, available_w, available_h,
-                                &width, &height);
+static float grid_content_extent(float size, float before, float after) {
+	float extent = size - (before + after);
+	return extent < 0.0f ? 0.0f : extent;
+}
 
-    const float x = origin_x + ctx->nodes.abs_pos_x[node];
-    const float y = origin_y + ctx->nodes.abs_pos_y[node];
+static void grid_commit_container(XentLayoutRequest const *request, GridLayoutFrame *frame) {
+	XentContext *ctx    = request->ctx;
+	XentNodeId   node   = request->node;
+	float        width  = 0.0f;
+	float        height = 0.0f;
+	xent_compute_intrinsic_size(ctx, node, request->available_w, request->available_h, &width, &height);
 
-    /* ---- Step 2: commit the grid container's layout ---- */
-    ctx->nodes.proposed_w[node] = available_w;
-    ctx->nodes.proposed_h[node] = available_h;
-    ctx->nodes.decided_w[node] = width;
-    ctx->nodes.decided_h[node] = height;
-    ctx->nodes.abs_x[node] = x;
-    ctx->nodes.abs_y[node] = y;
-    xent_quantize_node_layout(ctx, node);
+	ctx->nodes.layout.proposed_w [node] = request->available_w;
+	ctx->nodes.layout.proposed_h [node] = request->available_h;
+	ctx->nodes.layout.decided_w [node]  = width;
+	ctx->nodes.layout.decided_h [node]  = height;
+	ctx->nodes.layout.abs_x [node]      = request->origin_x + ctx->nodes.layout.abs_pos_x [node];
+	ctx->nodes.layout.abs_y [node]      = request->origin_y + ctx->nodes.layout.abs_pos_y [node];
+	xent_quantize_node_layout(ctx, node);
 
-    /* Read back quantised values. */
-    width  = ctx->nodes.decided_w[node];
-    height = ctx->nodes.decided_h[node];
-    const float qx = ctx->nodes.abs_x[node];
-    const float qy = ctx->nodes.abs_y[node];
+	width            = ctx->nodes.layout.decided_w [node];
+	height           = ctx->nodes.layout.decided_h [node];
+	frame->node      = node;
+	frame->content_x = ctx->nodes.layout.abs_x [node] + ctx->nodes.layout.padding_l [node];
+	frame->content_y = ctx->nodes.layout.abs_y [node] + ctx->nodes.layout.padding_t [node];
+	frame->content_w = grid_content_extent(width, ctx->nodes.layout.padding_l [node], ctx->nodes.layout.padding_r [node]);
+	frame->content_h
+	  = grid_content_extent(height, ctx->nodes.layout.padding_t [node], ctx->nodes.layout.padding_b [node]);
+}
 
-    /* ---- Step 3: content area ---- */
-    float content_w = width - (ctx->nodes.padding_l[node] + ctx->nodes.padding_r[node]);
-    float content_h = height - (ctx->nodes.padding_t[node] + ctx->nodes.padding_b[node]);
-    if (content_w < 0.0f) {
-        content_w = 0.0f;
-    }
-    if (content_h < 0.0f) {
-        content_h = 0.0f;
-    }
+static void grid_layout_fallback_children(XentContext *ctx, GridLayoutFrame const *frame) {
+	for (XentNodeId child = ctx->nodes.topology.first_child [frame->node]; child != XENT_NODE_INVALID;
+	  child               = ctx->nodes.topology.next_sibling [child])
+	{
+		xent_layout_dispatch_node(
+		  &(XentLayoutRequest) {ctx, child, frame->content_w, frame->content_h, frame->content_x, frame->content_y}
+		);
+	}
+}
 
-    const float content_x = qx + ctx->nodes.padding_l[node];
-    const float content_y = qy + ctx->nodes.padding_t[node];
+static void grid_init_default_track(GridTrackSet *tracks) {
+	tracks->count          = 1u;
+	tracks->modes_buf [0]  = ( uint8_t ) XENT_GRID_STAR;
+	tracks->values_buf [0] = 1.0f;
+	tracks->modes          = tracks->modes_buf;
+	tracks->values         = tracks->values_buf;
+}
 
-    /* ---- Step 4: no grid_def → fall back to absolute-style layout ---- */
-    const XentGridDef *def = ctx->nodes.grid_def[node];
-    if (!def) {
-        XentNodeId child = ctx->nodes.first_child[node];
-        while (child != XENT_NODE_INVALID) {
-            xent_layout_dispatch_node(ctx, child,
-                                      content_w, content_h,
-                                      content_x, content_y);
-            child = ctx->nodes.next_sibling[child];
-        }
-        return;
-    }
+typedef struct GridTrackInit {
+	uint8_t        count;
+	uint8_t const *modes;
+	float const   *values;
+	float          gap;
+	float          available;
+} GridTrackInit;
 
-    /* ---- Normalise track counts (default 1×1 star) ---- */
-    uint8_t row_count = def->row_count;
-    uint8_t col_count = def->col_count;
+static void grid_init_tracks(GridTrackSet *tracks, GridTrackInit init) {
+	*tracks           = (GridTrackSet) {0};
+	tracks->count     = init.count;
+	tracks->modes     = init.modes;
+	tracks->values    = init.values;
+	tracks->gap       = init.gap < 0.0f ? 0.0f : init.gap;
+	tracks->available = init.available;
+	if (tracks->count == 0u) grid_init_default_track(tracks);
+}
 
-    uint8_t row_modes_buf[XENT_GRID_MAX_TRACKS];
-    float   row_values_buf[XENT_GRID_MAX_TRACKS];
-    uint8_t col_modes_buf[XENT_GRID_MAX_TRACKS];
-    float   col_values_buf[XENT_GRID_MAX_TRACKS];
+static GridAxisPlacement
+grid_axis_placement(XentContext const *ctx, XentNodeId child, GridAxis axis, uint8_t track_count) {
+	uint16_t index = axis == GRID_AXIS_COLUMNS ? ctx->nodes.grid.column [child] : ctx->nodes.grid.row [child];
+	uint16_t span  = axis == GRID_AXIS_COLUMNS ? ctx->nodes.grid.column_span [child] : ctx->nodes.grid.row_span [child];
+	index          = clamp_track(index, track_count);
+	span           = clamp_span(index, span, track_count);
+	return (GridAxisPlacement) {index, span};
+}
 
-    const uint8_t *row_modes  = def->row_modes;
-    const float   *row_values = def->row_values;
-    const uint8_t *col_modes  = def->col_modes;
-    const float   *col_values = def->col_values;
+static float grid_child_axis_need(XentContext *ctx, XentNodeId child, GridAxis axis, float available) {
+	float intrinsic_w = 0.0f;
+	float intrinsic_h = 0.0f;
+	xent_compute_intrinsic_size(ctx, child, available, available, &intrinsic_w, &intrinsic_h);
+	if (axis == GRID_AXIS_COLUMNS)
+		return intrinsic_w + ctx->nodes.layout.margin_l [child] + ctx->nodes.layout.margin_r [child];
+	return intrinsic_h + ctx->nodes.layout.margin_t [child] + ctx->nodes.layout.margin_b [child];
+}
 
-    if (row_count == 0u) {
-        row_count = 1u;
-        row_modes_buf[0] = (uint8_t)XENT_GRID_STAR;
-        row_values_buf[0] = 1.0f;
-        row_modes = row_modes_buf;
-        row_values = row_values_buf;
-    }
-    if (col_count == 0u) {
-        col_count = 1u;
-        col_modes_buf[0] = (uint8_t)XENT_GRID_STAR;
-        col_values_buf[0] = 1.0f;
-        col_modes = col_modes_buf;
-        col_values = col_values_buf;
-    }
+static float
+grid_auto_track_size(XentContext *ctx, XentNodeId container, GridTrackSet const *tracks, GridAxis axis, uint8_t track) {
+	float max_size = 0.0f;
+	for (XentNodeId child = ctx->nodes.topology.first_child [container]; child != XENT_NODE_INVALID;
+	  child               = ctx->nodes.topology.next_sibling [child])
+	{
+		GridAxisPlacement placement = grid_axis_placement(ctx, child, axis, tracks->count);
+		if (placement.index == track && placement.span == 1u)
+			max_size = maxf(max_size, grid_child_axis_need(ctx, child, axis, tracks->available));
+	}
+	return max_size;
+}
 
-    float row_gap = def->row_gap;
-    float col_gap = def->col_gap;
-    if (row_gap < 0.0f) {
-        row_gap = 0.0f;
-    }
-    if (col_gap < 0.0f) {
-        col_gap = 0.0f;
-    }
+static void grid_resolve_auto_tracks(XentContext *ctx, XentNodeId container, GridTrackSet *tracks, GridAxis axis) {
+	for (uint8_t i = 0u; i < tracks->count; ++i)
+		if (tracks->modes [i] == ( uint8_t ) XENT_GRID_AUTO)
+			tracks->sizes [i] = grid_auto_track_size(ctx, container, tracks, axis, i);
+}
 
-    /* ---- Step 5: resolve track sizes ---- */
-    float col_sizes[XENT_GRID_MAX_TRACKS];
-    float row_sizes[XENT_GRID_MAX_TRACKS];
+static void grid_resolve_pixel_tracks(GridTrackSet *tracks) {
+	for (uint8_t i = 0u; i < tracks->count; ++i)
+		if (tracks->modes [i] == ( uint8_t ) XENT_GRID_PIXEL) tracks->sizes [i] = maxf(tracks->values [i], 0.0f);
+}
 
-    resolve_tracks(ctx, node, col_count, col_modes, col_values,
-                   col_gap, content_w, /*axis=*/0, col_sizes);
-    resolve_tracks(ctx, node, row_count, row_modes, row_values,
-                   row_gap, content_h, /*axis=*/1, row_sizes);
+static float grid_non_star_size(GridTrackSet const *tracks) {
+	float used = 0.0f;
+	for (uint8_t i = 0u; i < tracks->count; ++i)
+		if (tracks->modes [i] != ( uint8_t ) XENT_GRID_STAR) used += tracks->sizes [i];
+	return used;
+}
 
-    /* ---- Step 6: compute track positions ---- */
-    float col_positions[XENT_GRID_MAX_TRACKS];
-    float row_positions[XENT_GRID_MAX_TRACKS];
+static float grid_total_star_weight(GridTrackSet const *tracks) {
+	float total = 0.0f;
+	for (uint8_t i = 0u; i < tracks->count; ++i)
+		if (tracks->modes [i] == ( uint8_t ) XENT_GRID_STAR)
+			total += tracks->values [i] > 0.0f ? tracks->values [i] : 1.0f;
+	return total;
+}
 
-    compute_positions(col_sizes, col_count, col_gap, content_x, col_positions);
-    compute_positions(row_sizes, row_count, row_gap, content_y, row_positions);
+static float grid_remaining_track_space(GridTrackSet const *tracks) {
+	float total_gap = tracks->count > 1u ? tracks->gap * ( float ) (tracks->count - 1u) : 0.0f;
+	float remaining = tracks->available - total_gap - grid_non_star_size(tracks);
+	return remaining < 0.0f ? 0.0f : remaining;
+}
 
-    /* ---- Step 7: position each child ---- */
-    XentNodeId child = ctx->nodes.first_child[node];
-    while (child != XENT_NODE_INVALID) {
-        /* Read and clamp the child's grid placement. */
-        uint16_t col_idx  = clamp_track(ctx->nodes.grid_column[child], col_count);
-        uint16_t row_idx  = clamp_track(ctx->nodes.grid_row[child], row_count);
-        uint16_t col_span = clamp_span(col_idx,
-                                       ctx->nodes.grid_column_span[child],
-                                       col_count);
-        uint16_t row_span = clamp_span(row_idx,
-                                       ctx->nodes.grid_row_span[child],
-                                       row_count);
+static void grid_resolve_star_tracks(GridTrackSet *tracks) {
+	float star_weight = grid_total_star_weight(tracks);
+	if (star_weight <= 0.0f) return;
 
-        /* Compute the cell's origin and extent (including inter-track gaps). */
-        float cell_x = col_positions[col_idx];
-        float cell_y = row_positions[row_idx];
-        float cell_w = span_extent(col_sizes, col_positions, col_idx, col_span, col_gap);
-        float cell_h = span_extent(row_sizes, row_positions, row_idx, row_span, row_gap);
+	float star_space = grid_remaining_track_space(tracks);
+	for (uint8_t i = 0u; i < tracks->count; ++i) {
+		if (tracks->modes [i] != ( uint8_t ) XENT_GRID_STAR) continue;
+		float weight      = tracks->values [i] > 0.0f ? tracks->values [i] : 1.0f;
+		tracks->sizes [i] = star_space * (weight / star_weight);
+	}
+}
 
-        /* Subtract child margins to get the available area for the child. */
-        float ml = ctx->nodes.margin_l[child];
-        float mt = ctx->nodes.margin_t[child];
-        float mr = ctx->nodes.margin_r[child];
-        float mb = ctx->nodes.margin_b[child];
+static void grid_resolve_tracks(XentContext *ctx, XentNodeId container, GridTrackSet *tracks, GridAxis axis) {
+	for (uint8_t i = 0u; i < tracks->count; ++i) tracks->sizes [i] = 0.0f;
+	grid_resolve_auto_tracks(ctx, container, tracks, axis);
+	grid_resolve_pixel_tracks(tracks);
+	grid_resolve_star_tracks(tracks);
+}
 
-        float child_origin_x = cell_x + ml;
-        float child_origin_y = cell_y + mt;
-        float child_avail_w  = cell_w - (ml + mr);
-        float child_avail_h  = cell_h - (mt + mb);
+static void grid_compute_positions(GridTrackSet *tracks, float origin) {
+	float cursor = origin;
+	for (uint8_t i = 0u; i < tracks->count; ++i) {
+		tracks->positions [i]  = cursor;
+		cursor                += tracks->sizes [i] + tracks->gap;
+	}
+}
 
-        if (child_avail_w < 0.0f) {
-            child_avail_w = 0.0f;
-        }
-        if (child_avail_h < 0.0f) {
-            child_avail_h = 0.0f;
-        }
+static GridChildPlacement
+grid_child_placement(XentContext const *ctx, XentNodeId child, GridTrackSet const *columns, GridTrackSet const *rows) {
+	GridChildPlacement placement = {0};
+	placement.column             = grid_axis_placement(ctx, child, GRID_AXIS_COLUMNS, columns->count);
+	placement.row                = grid_axis_placement(ctx, child, GRID_AXIS_ROWS, rows->count);
+	placement.cell_x             = columns->positions [placement.column.index];
+	placement.cell_y             = rows->positions [placement.row.index];
+	placement.cell_w   = span_extent(columns->sizes, placement.column.index, placement.column.span, columns->gap);
+	placement.cell_h   = span_extent(rows->sizes, placement.row.index, placement.row.span, rows->gap);
+	placement.margin_l = ctx->nodes.layout.margin_l [child];
+	placement.margin_t = ctx->nodes.layout.margin_t [child];
+	placement.margin_r = ctx->nodes.layout.margin_r [child];
+	placement.margin_b = ctx->nodes.layout.margin_b [child];
+	return placement;
+}
 
-        xent_layout_dispatch_node(ctx, child,
-                                  child_avail_w, child_avail_h,
-                                  child_origin_x, child_origin_y);
+static void
+grid_layout_child(XentContext *ctx, XentNodeId child, GridTrackSet const *columns, GridTrackSet const *rows) {
+	GridChildPlacement placement = grid_child_placement(ctx, child, columns, rows);
+	float              child_w   = grid_content_extent(placement.cell_w, placement.margin_l, placement.margin_r);
+	float              child_h   = grid_content_extent(placement.cell_h, placement.margin_t, placement.margin_b);
+	float              child_x   = placement.cell_x + placement.margin_l;
+	float              child_y   = placement.cell_y + placement.margin_t;
+	xent_layout_dispatch_node(&(XentLayoutRequest) {ctx, child, child_w, child_h, child_x, child_y});
+}
 
-        child = ctx->nodes.next_sibling[child];
-    }
+static void grid_layout_children(
+  XentContext *ctx, GridLayoutFrame const *frame, GridTrackSet const *columns, GridTrackSet const *rows
+) {
+	for (XentNodeId child = ctx->nodes.topology.first_child [frame->node]; child != XENT_NODE_INVALID;
+	  child               = ctx->nodes.topology.next_sibling [child])
+	{
+		grid_layout_child(ctx, child, columns, rows);
+	}
+}
+
+void xent_layout_node_grid(XentLayoutRequest const *request) {
+	XentContext    *ctx   = request->ctx;
+	XentNodeId      node  = request->node;
+	GridLayoutFrame frame = {0};
+	grid_commit_container(request, &frame);
+
+	XentGridDef const *def = ctx->nodes.grid.def [node];
+	if (!def) {
+		grid_layout_fallback_children(ctx, &frame);
+		return;
+	}
+
+	GridTrackSet rows    = {0};
+	GridTrackSet columns = {0};
+	grid_init_tracks(&rows, (GridTrackInit) {def->row_count, def->row_modes, def->row_values, def->row_gap, frame.content_h});
+	grid_init_tracks(
+	  &columns, (GridTrackInit) {def->col_count, def->col_modes, def->col_values, def->col_gap, frame.content_w}
+	);
+
+	grid_resolve_tracks(ctx, node, &columns, GRID_AXIS_COLUMNS);
+	grid_resolve_tracks(ctx, node, &rows, GRID_AXIS_ROWS);
+	grid_compute_positions(&columns, frame.content_x);
+	grid_compute_positions(&rows, frame.content_y);
+	grid_layout_children(ctx, &frame, &columns, &rows);
 }

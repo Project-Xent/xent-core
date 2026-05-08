@@ -20,6 +20,7 @@ compile_commands.json
 *.ilk
 *.idb
 *.pch
+*.patch
 *.dSYM/
 
 # Visual Studio

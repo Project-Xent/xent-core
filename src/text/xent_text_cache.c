@@ -1,210 +1,164 @@
 #include "../xent_internal.h"
 
-static uint64_t xent_fnv1a(const char *text,
-                           float font_size,
-                           float width_constraint,
-                           XentLineBreakPolicy line_break_policy,
-                           XentMeasureMode width_mode) {
-    const uint64_t fnv_offset = 1469598103934665603ull;
-    const uint64_t fnv_prime = 1099511628211ull;
+static bool     xent_float_bits_equal(float a, float b) { return memcmp(&a, &b, sizeof(float)) == 0; }
 
-    uint64_t hash = fnv_offset;
-    const uint8_t *bytes = (const uint8_t *)text;
-    while (*bytes) {
-        hash ^= *bytes++;
-        hash *= fnv_prime;
-    }
+static uint64_t xent_hash_bytes(uint64_t hash, void const *data, size_t size) {
+	uint8_t const *bytes = ( uint8_t const * ) data;
+	for (size_t i = 0; i < size; ++i) {
+		hash ^= bytes [i];
+		hash *= 1099511628211ull;
+	}
+	return hash;
+}
 
-    const uint8_t *size_bytes = (const uint8_t *)&font_size;
-    const uint8_t *width_bytes = (const uint8_t *)&width_constraint;
-    for (size_t i = 0; i < sizeof(float); ++i) {
-        hash ^= size_bytes[i];
-        hash *= fnv_prime;
-    }
-    for (size_t i = 0; i < sizeof(float); ++i) {
-        hash ^= width_bytes[i];
-        hash *= fnv_prime;
-    }
-    hash ^= (uint8_t)line_break_policy;
-    hash *= fnv_prime;
-    hash ^= (uint8_t)width_mode;
-    hash *= fnv_prime;
+static uint64_t xent_hash_text_cache_key(XentTextCacheKey const *key) {
+	uint64_t hash              = 1469598103934665603ull;
+	uint8_t  line_break_policy = ( uint8_t ) key->line_break_policy;
+	uint8_t  width_mode        = ( uint8_t ) key->width_mode;
+	hash                       = xent_hash_bytes(hash, key->text, strlen(key->text));
+	hash                       = xent_hash_bytes(hash, &key->font_size, sizeof(key->font_size));
+	hash                       = xent_hash_bytes(hash, &key->width_constraint, sizeof(key->width_constraint));
+	hash                       = xent_hash_bytes(hash, &line_break_policy, sizeof(line_break_policy));
+	hash                       = xent_hash_bytes(hash, &width_mode, sizeof(width_mode));
+	return hash;
+}
 
-    return hash;
+static bool
+xent_cached_text_key_matches(XentCachedTextKey const *cached, XentTextCacheKey const *key, uint64_t key_hash) {
+	return cached->hash == key_hash
+	    && xent_float_bits_equal(cached->font_size, key->font_size)
+	    && xent_float_bits_equal(cached->width_constraint, key->width_constraint)
+	    && cached->line_break_policy == ( uint8_t ) key->line_break_policy
+	    && cached->width_mode == ( uint8_t ) key->width_mode
+	    && strcmp(cached->text, key->text) == 0;
+}
+
+static bool xent_cached_text_key_copy(XentCachedTextKey *cached, XentTextCacheKey const *key) {
+	cached->text = xent_strdup(key->text);
+	if (!cached->text) return false;
+
+	cached->hash              = xent_hash_text_cache_key(key);
+	cached->font_size         = key->font_size;
+	cached->width_constraint  = key->width_constraint;
+	cached->line_break_policy = ( uint8_t ) key->line_break_policy;
+	cached->width_mode        = ( uint8_t ) key->width_mode;
+	return true;
+}
+
+static bool xent_reserve_cache_entries(void **entries, uint32_t *capacity, uint32_t count, size_t entry_size) {
+	if (count < *capacity) return true;
+
+	uint32_t next_capacity = *capacity ? *capacity * 2u : 64u;
+	void    *next_entries  = realloc(*entries, entry_size * ( size_t ) next_capacity);
+	if (!next_entries) return false;
+
+	*entries  = next_entries;
+	*capacity = next_capacity;
+	return true;
+}
+
+static bool xent_reserve_text_cache(XentTextCache *cache) {
+	return xent_reserve_cache_entries(
+	  ( void ** ) &cache->entries, &cache->capacity, cache->count, sizeof(*cache->entries)
+	);
+}
+
+static bool xent_reserve_shape_cache(XentShapeCache *cache) {
+	return xent_reserve_cache_entries(
+	  ( void ** ) &cache->entries, &cache->capacity, cache->count, sizeof(*cache->entries)
+	);
+}
+
+static XentTextCacheEntry *xent_find_text_entry(XentTextCache *cache, XentTextCacheKey const *key) {
+	uint64_t key_hash = xent_hash_text_cache_key(key);
+	for (uint32_t i = 0; i < cache->count; ++i) {
+		XentTextCacheEntry *entry = &cache->entries [i];
+		if (xent_cached_text_key_matches(&entry->key, key, key_hash)) return entry;
+	}
+	return NULL;
+}
+
+static XentShapeCacheEntry *xent_find_shape_entry(XentShapeCache *cache, XentTextCacheKey const *key) {
+	uint64_t key_hash = xent_hash_text_cache_key(key);
+	for (uint32_t i = 0; i < cache->count; ++i) {
+		XentShapeCacheEntry *entry = &cache->entries [i];
+		if (xent_cached_text_key_matches(&entry->key, key, key_hash)) return entry;
+	}
+	return NULL;
 }
 
 bool xent_text_cache_init(XentTextCache *cache) {
-    if (!cache) {
-        return false;
-    }
-    memset(cache, 0, sizeof(*cache));
-    return true;
+	if (!cache) return false;
+	memset(cache, 0, sizeof(*cache));
+	return true;
 }
 
 bool xent_shape_cache_init(XentShapeCache *cache) {
-    if (!cache) {
-        return false;
-    }
-    memset(cache, 0, sizeof(*cache));
-    return true;
+	if (!cache) return false;
+	memset(cache, 0, sizeof(*cache));
+	return true;
 }
 
 void xent_text_cache_destroy(XentTextCache *cache) {
-    if (!cache) {
-        return;
-    }
-    for (uint32_t i = 0; i < cache->count; ++i) {
-        free(cache->entries[i].text);
-        cache->entries[i].text = NULL;
-    }
-    free(cache->entries);
-    memset(cache, 0, sizeof(*cache));
+	if (!cache) return;
+	for (uint32_t i = 0; i < cache->count; ++i) free(cache->entries [i].key.text);
+	free(cache->entries);
+	memset(cache, 0, sizeof(*cache));
 }
 
 void xent_shape_cache_destroy(XentShapeCache *cache) {
-    if (!cache) {
-        return;
-    }
-    for (uint32_t i = 0; i < cache->count; ++i) {
-        free(cache->entries[i].text);
-        cache->entries[i].text = NULL;
-    }
-    free(cache->entries);
-    memset(cache, 0, sizeof(*cache));
+	if (!cache) return;
+	for (uint32_t i = 0; i < cache->count; ++i) free(cache->entries [i].key.text);
+	free(cache->entries);
+	memset(cache, 0, sizeof(*cache));
 }
 
-bool xent_text_cache_lookup(XentTextCache *cache,
-                            const char *text,
-                            float font_size,
-                            float width_constraint,
-                            XentLineBreakPolicy line_break_policy,
-                            XentMeasureMode width_mode,
-                            XentTextMetrics *out_metrics) {
-    if (!cache || !text || !out_metrics) {
-        return false;
-    }
+bool xent_text_cache_lookup(XentTextCache *cache, XentTextCacheKey const *key, XentTextMetrics *out_metrics) {
+	if (!cache || !key || !key->text || !out_metrics) return false;
 
-    uint64_t hash = xent_fnv1a(text, font_size, width_constraint, line_break_policy, width_mode);
-    for (uint32_t i = 0; i < cache->count; ++i) {
-        XentTextCacheEntry *entry = &cache->entries[i];
-        if (entry->hash == hash &&
-            entry->font_size == font_size &&
-            entry->width_constraint == width_constraint &&
-            entry->line_break_policy == (uint8_t)line_break_policy &&
-            entry->width_mode == (uint8_t)width_mode &&
-            strcmp(entry->text, text) == 0) {
-            *out_metrics = entry->metrics;
-            cache->stats.hits += 1u;
-            return true;
-        }
-    }
+	XentTextCacheEntry *entry = xent_find_text_entry(cache, key);
+	if (!entry) {
+		cache->stats.misses += 1u;
+		return false;
+	}
 
-    cache->stats.misses += 1u;
-    return false;
+	*out_metrics       = entry->metrics;
+	cache->stats.hits += 1u;
+	return true;
 }
 
-bool xent_shape_cache_lookup(XentShapeCache *cache,
-                             const char *text,
-                             float font_size,
-                             float width_constraint,
-                             XentLineBreakPolicy line_break_policy,
-                             XentMeasureMode width_mode,
-                             XentShapingResult *out_result) {
-    if (!cache || !text || !out_result) {
-        return false;
-    }
+bool xent_shape_cache_lookup(XentShapeCache *cache, XentTextCacheKey const *key, XentShapingResult *out_result) {
+	if (!cache || !key || !key->text || !out_result) return false;
 
-    uint64_t hash = xent_fnv1a(text, font_size, width_constraint, line_break_policy, width_mode);
-    for (uint32_t i = 0; i < cache->count; ++i) {
-        XentShapeCacheEntry *entry = &cache->entries[i];
-        if (entry->hash == hash &&
-            entry->font_size == font_size &&
-            entry->width_constraint == width_constraint &&
-            entry->line_break_policy == (uint8_t)line_break_policy &&
-            entry->width_mode == (uint8_t)width_mode &&
-            strcmp(entry->text, text) == 0) {
-            *out_result = entry->result;
-            cache->stats.hits += 1u;
-            return true;
-        }
-    }
+	XentShapeCacheEntry *entry = xent_find_shape_entry(cache, key);
+	if (!entry) {
+		cache->stats.misses += 1u;
+		return false;
+	}
 
-    cache->stats.misses += 1u;
-    return false;
+	*out_result        = entry->result;
+	cache->stats.hits += 1u;
+	return true;
 }
 
-void xent_text_cache_insert(XentTextCache *cache,
-                            const char *text,
-                            float font_size,
-                            float width_constraint,
-                            XentLineBreakPolicy line_break_policy,
-                            XentMeasureMode width_mode,
-                            const XentTextMetrics *metrics) {
-    if (!cache || !text || !metrics) {
-        return;
-    }
+void xent_text_cache_insert(XentTextCache *cache, XentTextCacheKey const *key, XentTextMetrics const *metrics) {
+	if (!cache || !key || !key->text || !metrics || !xent_reserve_text_cache(cache)) return;
 
-    if (cache->count == cache->capacity) {
-        uint32_t new_cap = cache->capacity ? cache->capacity * 2u : 64u;
-        XentTextCacheEntry *new_entries =
-            (XentTextCacheEntry *)realloc(cache->entries, sizeof(XentTextCacheEntry) * (size_t)new_cap);
-        if (!new_entries) {
-            return;
-        }
-        cache->entries = new_entries;
-        cache->capacity = new_cap;
-    }
+	XentTextCacheEntry *entry = &cache->entries [cache->count];
+	if (!xent_cached_text_key_copy(&entry->key, key)) return;
 
-    char *text_copy = xent_strdup(text);
-    if (!text_copy) {
-        return;
-    }
-
-    XentTextCacheEntry *entry = &cache->entries[cache->count++];
-    entry->hash = xent_fnv1a(text, font_size, width_constraint, line_break_policy, width_mode);
-    entry->text = text_copy;
-    entry->font_size = font_size;
-    entry->width_constraint = width_constraint;
-    entry->line_break_policy = (uint8_t)line_break_policy;
-    entry->width_mode = (uint8_t)width_mode;
-    entry->metrics = *metrics;
-    cache->stats.inserts += 1u;
+	entry->metrics        = *metrics;
+	cache->count         += 1u;
+	cache->stats.inserts += 1u;
 }
 
-void xent_shape_cache_insert(XentShapeCache *cache,
-                             const char *text,
-                             float font_size,
-                             float width_constraint,
-                             XentLineBreakPolicy line_break_policy,
-                             XentMeasureMode width_mode,
-                             const XentShapingResult *result) {
-    if (!cache || !text || !result) {
-        return;
-    }
+void xent_shape_cache_insert(XentShapeCache *cache, XentTextCacheKey const *key, XentShapingResult const *result) {
+	if (!cache || !key || !key->text || !result || !xent_reserve_shape_cache(cache)) return;
 
-    if (cache->count == cache->capacity) {
-        uint32_t new_cap = cache->capacity ? cache->capacity * 2u : 64u;
-        XentShapeCacheEntry *new_entries =
-            (XentShapeCacheEntry *)realloc(cache->entries, sizeof(XentShapeCacheEntry) * (size_t)new_cap);
-        if (!new_entries) {
-            return;
-        }
-        cache->entries = new_entries;
-        cache->capacity = new_cap;
-    }
+	XentShapeCacheEntry *entry = &cache->entries [cache->count];
+	if (!xent_cached_text_key_copy(&entry->key, key)) return;
 
-    char *text_copy = xent_strdup(text);
-    if (!text_copy) {
-        return;
-    }
-
-    XentShapeCacheEntry *entry = &cache->entries[cache->count++];
-    entry->hash = xent_fnv1a(text, font_size, width_constraint, line_break_policy, width_mode);
-    entry->text = text_copy;
-    entry->font_size = font_size;
-    entry->width_constraint = width_constraint;
-    entry->line_break_policy = (uint8_t)line_break_policy;
-    entry->width_mode = (uint8_t)width_mode;
-    entry->result = *result;
-    cache->stats.inserts += 1u;
+	entry->result         = *result;
+	cache->count         += 1u;
+	cache->stats.inserts += 1u;
 }

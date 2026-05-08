@@ -1,307 +1,240 @@
 #include "test_common.h"
 
-static int test_priority_shrink_order(void) {
-    XentContext *ctx = xent_create_context(NULL);
-    TEST_ASSERT(ctx != NULL);
+#define SCHK_X 1u
+#define SCHK_Y 2u
+#define SCHK_W 4u
+#define SCHK_H 8u
 
-    XentNodeId root = xent_create_node(ctx);
-    XentNodeId low = xent_create_node(ctx);
-    XentNodeId high = xent_create_node(ctx);
+#define SREL_NONE             0
+#define SREL_SECOND_WIDER     1
+#define SREL_EQUAL_WIDTH      2
+#define SREL_FIXED_VS_FLEX    3
+#define SREL_FIRST_BELOW      4
+#define SREL_BASELINE_LAST    5
+#define SREL_SPACER_X         6
 
-    xent_set_protocol(ctx, root, XENT_PROTOCOL_SWIFTSTACK);
-    xent_set_stack_axis(ctx, root, XENT_AXIS_HORIZONTAL);
-    xent_set_size(ctx, root, 120.0f, 40.0f);
+#define SWIFT_MAX_CHILD 4
 
-    xent_set_text(ctx, low, "abcdefghij12");
-    xent_set_text(ctx, high, "abcdefghij12");
-    xent_set_size(ctx, low, NAN, 20.0f);
-    xent_set_size(ctx, high, NAN, 20.0f);
-    xent_set_layout_priority(ctx, low, 0.0f);
-    xent_set_layout_priority(ctx, high, 10.0f);
+typedef struct StackChildCase {
+	XentSize    size;
+	char const *text;
+	float       priority;
+	int         is_spacer;
+	XentInsets  margin;
+	float       expected_x;
+	float       expected_y;
+	float       expected_w;
+	float       expected_h;
+	uint32_t    check_mask;
+} StackChildCase;
 
-    xent_append_child(ctx, root, low);
-    xent_append_child(ctx, root, high);
-    TEST_ASSERT(xent_layout(ctx, root, 120.0f, 40.0f));
+typedef struct StackCase {
+	XentSize       root_size;
+	XentAxis       axis;
+	XentStackAlign alignment;
+	uint32_t       child_count;
+	StackChildCase children [SWIFT_MAX_CHILD];
+	int            relative_assert;
+	float          eps;
+} StackCase;
 
-    XentRect low_r = {0};
-    XentRect high_r = {0};
-    TEST_ASSERT(xent_get_layout_rect(ctx, low, &low_r));
-    TEST_ASSERT(xent_get_layout_rect(ctx, high, &high_r));
-    TEST_ASSERT(high_r.width > low_r.width);
-
-    xent_destroy_context(ctx);
-    return 0;
+static int stack_finite_size(XentSize s) { return isfinite(s.width) || isfinite(s.height); }
+static int stack_finite_inset(XentInsets i) {
+	return isfinite(i.top) || isfinite(i.right) || isfinite(i.bottom) || isfinite(i.left);
 }
 
-static int test_equal_priority_proportional_shrink(void) {
-    XentContext *ctx = xent_create_context(NULL);
-    TEST_ASSERT(ctx != NULL);
-
-    XentNodeId root = xent_create_node(ctx);
-    XentNodeId a = xent_create_node(ctx);
-    XentNodeId b = xent_create_node(ctx);
-
-    xent_set_protocol(ctx, root, XENT_PROTOCOL_SWIFTSTACK);
-    xent_set_stack_axis(ctx, root, XENT_AXIS_HORIZONTAL);
-    xent_set_size(ctx, root, 120.0f, 40.0f);
-
-    xent_set_text(ctx, a, "abcdefghij12");
-    xent_set_text(ctx, b, "abcdefghij12");
-    xent_set_size(ctx, a, NAN, 20.0f);
-    xent_set_size(ctx, b, NAN, 20.0f);
-    xent_set_layout_priority(ctx, a, 1.0f);
-    xent_set_layout_priority(ctx, b, 1.0f);
-
-    xent_append_child(ctx, root, a);
-    xent_append_child(ctx, root, b);
-    TEST_ASSERT(xent_layout(ctx, root, 120.0f, 40.0f));
-
-    XentRect ar = {0};
-    XentRect br = {0};
-    TEST_ASSERT(xent_get_layout_rect(ctx, a, &ar));
-    TEST_ASSERT(xent_get_layout_rect(ctx, b, &br));
-    TEST_ASSERT(test_float_near(ar.width, br.width, 0.5f));
-
-    xent_destroy_context(ctx);
-    return 0;
+static XentNodeId stack_make_root(XentContext *ctx, StackCase const *spec) {
+	XentNodeId root = xent_create_node(ctx);
+	xent_set_protocol(ctx, root, XENT_PROTOCOL_SWIFTSTACK);
+	xent_set_stack_axis(ctx, root, spec->axis);
+	xent_set_size(ctx, root, spec->root_size);
+	if (spec->alignment != XENT_STACK_ALIGN_START) xent_set_stack_alignment(ctx, root, spec->alignment);
+	return root;
 }
 
-static int test_spacer_absorbs_extra_space(void) {
-    XentContext *ctx = xent_create_context(NULL);
-    TEST_ASSERT(ctx != NULL);
-
-    XentNodeId root = xent_create_node(ctx);
-    XentNodeId left = xent_create_node(ctx);
-    XentNodeId spacer = xent_create_node(ctx);
-    XentNodeId right = xent_create_node(ctx);
-
-    xent_set_protocol(ctx, root, XENT_PROTOCOL_SWIFTSTACK);
-    xent_set_stack_axis(ctx, root, XENT_AXIS_HORIZONTAL);
-    xent_set_size(ctx, root, 220.0f, 40.0f);
-
-    xent_set_size(ctx, left, 40.0f, 20.0f);
-    xent_set_size(ctx, right, 40.0f, 20.0f);
-    xent_set_is_spacer(ctx, spacer, true);
-
-    xent_append_child(ctx, root, left);
-    xent_append_child(ctx, root, spacer);
-    xent_append_child(ctx, root, right);
-    TEST_ASSERT(xent_layout(ctx, root, 220.0f, 40.0f));
-
-    XentRect sr = {0};
-    XentRect rr = {0};
-    TEST_ASSERT(xent_get_layout_rect(ctx, spacer, &sr));
-    TEST_ASSERT(xent_get_layout_rect(ctx, right, &rr));
-    TEST_ASSERT(sr.width > 120.0f);
-    TEST_ASSERT(rr.x > sr.x);
-
-    xent_destroy_context(ctx);
-    return 0;
+static XentNodeId stack_make_child(XentContext *ctx, XentNodeId root, StackChildCase const *spec) {
+	XentNodeId node = xent_create_node(ctx);
+	if (spec->text) xent_set_text(ctx, node, spec->text);
+	if (stack_finite_size(spec->size)) xent_set_size(ctx, node, spec->size);
+	if (isfinite(spec->priority)) xent_set_layout_priority(ctx, node, spec->priority);
+	if (spec->is_spacer) xent_set_is_spacer(ctx, node, true);
+	if (stack_finite_inset(spec->margin)) xent_set_margin(ctx, node, spec->margin);
+	xent_append_child(ctx, root, node);
+	return node;
 }
 
-static int test_fixed_preserved_flexible_shrinks_first(void) {
-    XentContext *ctx = xent_create_context(NULL);
-    TEST_ASSERT(ctx != NULL);
-
-    XentNodeId root = xent_create_node(ctx);
-    XentNodeId fixed = xent_create_node(ctx);
-    XentNodeId flexible = xent_create_node(ctx);
-
-    xent_set_protocol(ctx, root, XENT_PROTOCOL_SWIFTSTACK);
-    xent_set_stack_axis(ctx, root, XENT_AXIS_HORIZONTAL);
-    xent_set_size(ctx, root, 120.0f, 40.0f);
-
-    xent_set_size(ctx, fixed, 90.0f, 20.0f);
-    xent_set_text(ctx, flexible, "abcdefghijkl");
-    xent_set_size(ctx, flexible, NAN, 20.0f);
-    xent_set_layout_priority(ctx, fixed, 0.0f);
-    xent_set_layout_priority(ctx, flexible, 0.0f);
-
-    xent_append_child(ctx, root, fixed);
-    xent_append_child(ctx, root, flexible);
-    TEST_ASSERT(xent_layout(ctx, root, 120.0f, 40.0f));
-
-    XentRect fixed_r = {0};
-    XentRect flex_r = {0};
-    TEST_ASSERT(xent_get_layout_rect(ctx, fixed, &fixed_r));
-    TEST_ASSERT(xent_get_layout_rect(ctx, flexible, &flex_r));
-    TEST_ASSERT(fixed_r.width >= 85.0f);
-    TEST_ASSERT(flex_r.width <= 40.0f);
-    TEST_ASSERT(fixed_r.width > flex_r.width);
-
-    xent_destroy_context(ctx);
-    return 0;
+static int stack_check_rect(XentContext *ctx, XentNodeId node, StackChildCase const *expect, float eps) {
+	XentRect rect = {0};
+	TEST_ASSERT(xent_get_layout_rect(ctx, node, &rect));
+	if (expect->check_mask & SCHK_X) TEST_ASSERT(test_float_near(rect.x, expect->expected_x, eps));
+	if (expect->check_mask & SCHK_Y) TEST_ASSERT(test_float_near(rect.y, expect->expected_y, eps));
+	if (expect->check_mask & SCHK_W) TEST_ASSERT(test_float_near(rect.width, expect->expected_w, eps));
+	if (expect->check_mask & SCHK_H) TEST_ASSERT(test_float_near(rect.height, expect->expected_h, eps));
+	return 0;
 }
 
-static int test_cross_axis_margins_applied(void) {
-    XentContext *ctx = xent_create_context(NULL);
-    TEST_ASSERT(ctx != NULL);
-
-    XentNodeId root = xent_create_node(ctx);
-    XentNodeId child = xent_create_node(ctx);
-
-    xent_set_protocol(ctx, root, XENT_PROTOCOL_SWIFTSTACK);
-    xent_set_stack_axis(ctx, root, XENT_AXIS_HORIZONTAL);
-    xent_set_size(ctx, root, 160.0f, 60.0f);
-    xent_set_size(ctx, child, 40.0f, NAN);
-    xent_set_margin(ctx, child, 0.0f, 6.0f, 0.0f, 8.0f);
-
-    xent_append_child(ctx, root, child);
-    TEST_ASSERT(xent_layout(ctx, root, 160.0f, 60.0f));
-
-    XentRect r = {0};
-    TEST_ASSERT(xent_get_layout_rect(ctx, child, &r));
-    TEST_ASSERT(test_float_near(r.y, 6.0f, 0.2f));
-    TEST_ASSERT(test_float_near(r.height, 46.0f, 0.2f));
-
-    xent_destroy_context(ctx);
-    return 0;
+static int stack_check_relative(XentContext *ctx, XentNodeId const *nodes, uint32_t count, int kind, float eps) {
+	if (kind == SREL_NONE) return 0;
+	if (count < 2) return 0;
+	XentRect r0 = {0};
+	XentRect r1 = {0};
+	TEST_ASSERT(xent_get_layout_rect(ctx, nodes [0], &r0));
+	TEST_ASSERT(xent_get_layout_rect(ctx, nodes [1], &r1));
+	if (kind == SREL_SECOND_WIDER) TEST_ASSERT(r1.width > r0.width);
+	if (kind == SREL_EQUAL_WIDTH) TEST_ASSERT(test_float_near(r0.width, r1.width, eps));
+	if (kind == SREL_FIXED_VS_FLEX) {
+		TEST_ASSERT(r0.width >= 85.0f);
+		TEST_ASSERT(r1.width <= 40.0f);
+		TEST_ASSERT(r0.width > r1.width);
+	}
+	if (kind == SREL_FIRST_BELOW) TEST_ASSERT(r0.y > r1.y);
+	if (kind == SREL_BASELINE_LAST) TEST_ASSERT(test_float_near(r0.y + r0.height, r1.y + r1.height, eps));
+	if (kind == SREL_SPACER_X && count >= 3) {
+		XentRect r2 = {0};
+		TEST_ASSERT(xent_get_layout_rect(ctx, nodes [2], &r2));
+		TEST_ASSERT(r1.width > 120.0f);
+		TEST_ASSERT(r2.x > r1.x);
+	}
+	return 0;
 }
 
-static int test_baseline_alignment_for_text(void) {
-    XentContext *ctx = xent_create_context(NULL);
-    TEST_ASSERT(ctx != NULL);
+static int run_stack_case(StackCase const *spec) {
+	XentContext *ctx = xent_create_context(NULL);
+	TEST_ASSERT(ctx != NULL);
 
-    XentNodeId root = xent_create_node(ctx);
-    XentNodeId small = xent_create_node(ctx);
-    XentNodeId large = xent_create_node(ctx);
+	XentNodeId root                     = stack_make_root(ctx, spec);
+	XentNodeId nodes [SWIFT_MAX_CHILD]  = {XENT_NODE_INVALID};
+	for (uint32_t i = 0; i < spec->child_count; ++i) nodes [i] = stack_make_child(ctx, root, &spec->children [i]);
 
-    xent_set_protocol(ctx, root, XENT_PROTOCOL_SWIFTSTACK);
-    xent_set_stack_axis(ctx, root, XENT_AXIS_HORIZONTAL);
-    xent_set_stack_alignment(ctx, root, XENT_STACK_ALIGN_BASELINE);
-    xent_set_size(ctx, root, 240.0f, 80.0f);
+	TEST_ASSERT(xent_layout(ctx, root, spec->root_size.width, spec->root_size.height));
 
-    xent_set_text(ctx, small, "small");
-    xent_set_size(ctx, small, 60.0f, 20.0f);
-    xent_set_text(ctx, large, "large");
-    xent_set_size(ctx, large, 60.0f, 40.0f);
+	for (uint32_t i = 0; i < spec->child_count; ++i)
+		TEST_ASSERT(stack_check_rect(ctx, nodes [i], &spec->children [i], spec->eps) == 0);
 
-    xent_append_child(ctx, root, small);
-    xent_append_child(ctx, root, large);
-    TEST_ASSERT(xent_layout(ctx, root, 240.0f, 80.0f));
+	TEST_ASSERT(stack_check_relative(ctx, nodes, spec->child_count, spec->relative_assert, spec->eps) == 0);
 
-    XentRect sr = {0};
-    XentRect lr = {0};
-    TEST_ASSERT(xent_get_layout_rect(ctx, small, &sr));
-    TEST_ASSERT(xent_get_layout_rect(ctx, large, &lr));
-    TEST_ASSERT(sr.y > lr.y);
-
-    xent_destroy_context(ctx);
-    return 0;
+	xent_destroy_context(ctx);
+	return 0;
 }
 
-static int test_baseline_fallback_for_non_text(void) {
-    XentContext *ctx = xent_create_context(NULL);
-    TEST_ASSERT(ctx != NULL);
+static int test_stack_table_cases(void) {
+	static StackCase const cases [] = {
+	    {
+	        .root_size   = {120.0f, 40.0f},
+	        .axis        = XENT_AXIS_HORIZONTAL,
+	        .alignment   = XENT_STACK_ALIGN_START,
+	        .child_count = 2,
+	        .children    = {
+	            {.size = {NAN, 20.0f}, .text = "abcdefghij12", .priority = 0.0f, .margin = {NAN, NAN, NAN, NAN}},
+	            {.size = {NAN, 20.0f}, .text = "abcdefghij12", .priority = 10.0f, .margin = {NAN, NAN, NAN, NAN}},
+	        },
+	        .relative_assert = SREL_SECOND_WIDER,
+	        .eps             = 0.5f,
+	    },
+	    {
+	        .root_size   = {120.0f, 40.0f},
+	        .axis        = XENT_AXIS_HORIZONTAL,
+	        .alignment   = XENT_STACK_ALIGN_START,
+	        .child_count = 2,
+	        .children    = {
+	            {.size = {NAN, 20.0f}, .text = "abcdefghij12", .priority = 1.0f, .margin = {NAN, NAN, NAN, NAN}},
+	            {.size = {NAN, 20.0f}, .text = "abcdefghij12", .priority = 1.0f, .margin = {NAN, NAN, NAN, NAN}},
+	        },
+	        .relative_assert = SREL_EQUAL_WIDTH,
+	        .eps             = 0.5f,
+	    },
+	    {
+	        .root_size   = {220.0f, 40.0f},
+	        .axis        = XENT_AXIS_HORIZONTAL,
+	        .alignment   = XENT_STACK_ALIGN_START,
+	        .child_count = 3,
+	        .children    = {
+	            {.size = {40.0f, 20.0f}, .priority = NAN, .margin = {NAN, NAN, NAN, NAN}},
+	            {.size = {NAN, NAN}, .is_spacer = 1, .priority = NAN, .margin = {NAN, NAN, NAN, NAN}},
+	            {.size = {40.0f, 20.0f}, .priority = NAN, .margin = {NAN, NAN, NAN, NAN}},
+	        },
+	        .relative_assert = SREL_SPACER_X,
+	        .eps             = 0.5f,
+	    },
+	    {
+	        .root_size   = {120.0f, 40.0f},
+	        .axis        = XENT_AXIS_HORIZONTAL,
+	        .alignment   = XENT_STACK_ALIGN_START,
+	        .child_count = 2,
+	        .children    = {
+	            {.size = {90.0f, 20.0f}, .priority = 0.0f, .margin = {NAN, NAN, NAN, NAN}},
+	            {.size = {NAN, 20.0f}, .text = "abcdefghijkl", .priority = 0.0f, .margin = {NAN, NAN, NAN, NAN}},
+	        },
+	        .relative_assert = SREL_FIXED_VS_FLEX,
+	        .eps             = 0.5f,
+	    },
+	    {
+	        .root_size   = {160.0f, 60.0f},
+	        .axis        = XENT_AXIS_HORIZONTAL,
+	        .alignment   = XENT_STACK_ALIGN_START,
+	        .child_count = 1,
+	        .children    = {
+	            {.size = {40.0f, NAN}, .priority = NAN, .margin = {0.0f, 6.0f, 0.0f, 8.0f}, .expected_y = 6.0f, .expected_h = 46.0f, .check_mask = SCHK_Y | SCHK_H},
+	        },
+	        .eps = 0.2f,
+	    },
+	    {
+	        .root_size   = {240.0f, 80.0f},
+	        .axis        = XENT_AXIS_HORIZONTAL,
+	        .alignment   = XENT_STACK_ALIGN_BASELINE,
+	        .child_count = 2,
+	        .children    = {
+	            {.size = {60.0f, 20.0f}, .text = "small", .priority = NAN, .margin = {NAN, NAN, NAN, NAN}},
+	            {.size = {60.0f, 40.0f}, .text = "large", .priority = NAN, .margin = {NAN, NAN, NAN, NAN}},
+	        },
+	        .relative_assert = SREL_FIRST_BELOW,
+	        .eps             = 0.2f,
+	    },
+	    {
+	        .root_size   = {240.0f, 100.0f},
+	        .axis        = XENT_AXIS_HORIZONTAL,
+	        .alignment   = XENT_STACK_ALIGN_BASELINE,
+	        .child_count = 2,
+	        .children    = {
+	            {.size = {60.0f, 60.0f}, .priority = NAN, .margin = {NAN, NAN, NAN, NAN}},
+	            {.size = {60.0f, 20.0f}, .priority = NAN, .margin = {NAN, NAN, NAN, NAN}},
+	        },
+	        .relative_assert = SREL_BASELINE_LAST,
+	        .eps             = 0.2f,
+	    },
+	    {
+	        .root_size   = {260.0f, 80.0f},
+	        .axis        = XENT_AXIS_HORIZONTAL,
+	        .alignment   = XENT_STACK_ALIGN_BASELINE,
+	        .child_count = 2,
+	        .children    = {
+	            {.size = {20.0f, 20.0f}, .text = "x", .priority = NAN, .margin = {NAN, NAN, NAN, NAN}},
+	            {.size = {NAN, NAN}, .is_spacer = 1, .priority = NAN, .margin = {NAN, NAN, NAN, NAN}, .expected_h = 80.0f, .check_mask = SCHK_H},
+	        },
+	        .eps = 0.2f,
+	    },
+	    {
+	        .root_size   = {100.0f, 160.0f},
+	        .axis        = XENT_AXIS_VERTICAL,
+	        .alignment   = XENT_STACK_ALIGN_BASELINE,
+	        .child_count = 1,
+	        .children    = {
+	            {.size = {NAN, 30.0f}, .priority = NAN, .margin = {5.0f, 0.0f, 7.0f, 0.0f}, .expected_x = 5.0f, .expected_w = 88.0f, .check_mask = SCHK_X | SCHK_W},
+	        },
+	        .eps = 0.2f,
+	    },
+	};
 
-    XentNodeId root = xent_create_node(ctx);
-    XentNodeId tall = xent_create_node(ctx);
-    XentNodeId short_box = xent_create_node(ctx);
+	for (size_t i = 0; i < sizeof(cases) / sizeof(cases [0]); ++i)
+		TEST_ASSERT(run_stack_case(&cases [i]) == 0);
 
-    xent_set_protocol(ctx, root, XENT_PROTOCOL_SWIFTSTACK);
-    xent_set_stack_axis(ctx, root, XENT_AXIS_HORIZONTAL);
-    xent_set_stack_alignment(ctx, root, XENT_STACK_ALIGN_BASELINE);
-    xent_set_size(ctx, root, 240.0f, 100.0f);
-
-    xent_set_size(ctx, tall, 60.0f, 60.0f);
-    xent_set_size(ctx, short_box, 60.0f, 20.0f);
-
-    xent_append_child(ctx, root, tall);
-    xent_append_child(ctx, root, short_box);
-    TEST_ASSERT(xent_layout(ctx, root, 240.0f, 100.0f));
-
-    XentRect tr = {0};
-    XentRect sr = {0};
-    TEST_ASSERT(xent_get_layout_rect(ctx, tall, &tr));
-    TEST_ASSERT(xent_get_layout_rect(ctx, short_box, &sr));
-    TEST_ASSERT(test_float_near(tr.y + tr.height, sr.y + sr.height, 0.2f));
-
-    xent_destroy_context(ctx);
-    return 0;
-}
-
-static int test_baseline_mode_keeps_spacer_cross_fill(void) {
-    XentContext *ctx = xent_create_context(NULL);
-    TEST_ASSERT(ctx != NULL);
-
-    XentNodeId root = xent_create_node(ctx);
-    XentNodeId text_node = xent_create_node(ctx);
-    XentNodeId spacer = xent_create_node(ctx);
-
-    xent_set_protocol(ctx, root, XENT_PROTOCOL_SWIFTSTACK);
-    xent_set_stack_axis(ctx, root, XENT_AXIS_HORIZONTAL);
-    xent_set_stack_alignment(ctx, root, XENT_STACK_ALIGN_BASELINE);
-    xent_set_size(ctx, root, 260.0f, 80.0f);
-
-    xent_set_text(ctx, text_node, "x");
-    xent_set_size(ctx, text_node, 20.0f, 20.0f);
-    xent_set_is_spacer(ctx, spacer, true);
-
-    xent_append_child(ctx, root, text_node);
-    xent_append_child(ctx, root, spacer);
-    TEST_ASSERT(xent_layout(ctx, root, 260.0f, 80.0f));
-
-    XentRect sr = {0};
-    TEST_ASSERT(xent_get_layout_rect(ctx, spacer, &sr));
-    TEST_ASSERT(test_float_near(sr.height, 80.0f, 0.2f));
-
-    xent_destroy_context(ctx);
-    return 0;
-}
-
-static int test_vertical_axis_ignores_baseline_mode(void) {
-    XentContext *ctx = xent_create_context(NULL);
-    TEST_ASSERT(ctx != NULL);
-
-    XentNodeId root = xent_create_node(ctx);
-    XentNodeId child = xent_create_node(ctx);
-
-    xent_set_protocol(ctx, root, XENT_PROTOCOL_SWIFTSTACK);
-    xent_set_stack_axis(ctx, root, XENT_AXIS_VERTICAL);
-    xent_set_stack_alignment(ctx, root, XENT_STACK_ALIGN_BASELINE);
-    xent_set_size(ctx, root, 100.0f, 160.0f);
-
-    xent_set_size(ctx, child, NAN, 30.0f);
-    xent_set_margin(ctx, child, 5.0f, 0.0f, 7.0f, 0.0f);
-    xent_append_child(ctx, root, child);
-    TEST_ASSERT(xent_layout(ctx, root, 100.0f, 160.0f));
-
-    XentRect r = {0};
-    TEST_ASSERT(xent_get_layout_rect(ctx, child, &r));
-    TEST_ASSERT(test_float_near(r.x, 5.0f, 0.2f));
-    TEST_ASSERT(test_float_near(r.width, 88.0f, 0.2f));
-
-    xent_destroy_context(ctx);
-    return 0;
+	return 0;
 }
 
 int main(void) {
-    if (test_priority_shrink_order() != 0) {
-        return 1;
-    }
-    if (test_equal_priority_proportional_shrink() != 0) {
-        return 1;
-    }
-    if (test_spacer_absorbs_extra_space() != 0) {
-        return 1;
-    }
-    if (test_fixed_preserved_flexible_shrinks_first() != 0) {
-        return 1;
-    }
-    if (test_cross_axis_margins_applied() != 0) {
-        return 1;
-    }
-    if (test_baseline_alignment_for_text() != 0) {
-        return 1;
-    }
-    if (test_baseline_fallback_for_non_text() != 0) {
-        return 1;
-    }
-    if (test_baseline_mode_keeps_spacer_cross_fill() != 0) {
-        return 1;
-    }
-    if (test_vertical_axis_ignores_baseline_mode() != 0) {
-        return 1;
-    }
-    return 0;
+	XentTestFn const tests[] = {
+	    test_stack_table_cases,
+	};
+
+	return test_run_all(tests, sizeof(tests) / sizeof(tests [0]));
 }

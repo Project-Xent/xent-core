@@ -242,8 +242,23 @@ static void xent_run_selected_layout(
 		);
 }
 
+static bool xent_has_any_dirty_node(XentContext const *ctx) {
+	for (uint32_t i = 1u; i <= ctx->nodes.count; ++i)
+		if (ctx->nodes.lifetime.alive [i] && xent_is_layout_dirty(ctx->nodes.layout.dirty_flags [i]))
+			return true;
+	return false;
+}
+
 bool xent_layout(XentContext *ctx, XentNodeId root, float available_width, float available_height) {
 	if (!xent_is_valid_node(ctx, root)) return false;
+
+	bool root_dirty     = xent_is_layout_dirty(ctx->nodes.layout.dirty_flags [root]);
+	bool snapshot_valid = xent_can_reuse_root_snapshot(ctx, root, available_width, available_height);
+	if (!root_dirty && snapshot_valid && !xent_has_any_dirty_node(ctx)) {
+		ctx->last_layout_strategy = ( uint8_t ) XENT_LAYOUT_STRATEGY_NONE;
+		return true;
+	}
+
 	if (!xent_build_preorder(ctx, root)) return false;
 
 	xent_scratch_reset(ctx);
@@ -253,6 +268,7 @@ bool xent_layout(XentContext *ctx, XentNodeId root, float available_width, float
 	XentLayoutStrategy   strategy   = xent_select_layout_strategy(ctx, &inputs, &dirty_plan);
 
 	xent_run_selected_layout(ctx, &inputs, strategy, &dirty_plan);
+	xent_batch_quantize_layout(ctx);
 
 	xent_clear_dirty_in_work_order(ctx);
 	ctx->last_layout_root        = root;

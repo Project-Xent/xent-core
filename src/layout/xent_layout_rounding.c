@@ -23,17 +23,46 @@ void xent_batch_quantize_layout(XentContext *ctx) {
 	if (!ctx || !ctx->config.enable_pixel_rounding) return;
 	float scale = ctx->config.point_scale_factor;
 	if (!(scale > 0.0f) || !isfinite(scale)) return;
-#if XENT_ISPC_ENABLED
 	uint32_t count = ctx->work_count;
+#if XENT_ISPC_ENABLED
 	if (count >= 64u) {
-		xent_ispc_quantize_f32(ctx->nodes.layout.abs_x + 1, ctx->nodes.count, scale);
-		xent_ispc_quantize_f32(ctx->nodes.layout.abs_y + 1, ctx->nodes.count, scale);
-		xent_ispc_quantize_f32(ctx->nodes.layout.decided_w + 1, ctx->nodes.count, scale);
-		xent_ispc_quantize_f32(ctx->nodes.layout.decided_h + 1, ctx->nodes.count, scale);
-		return;
+		if (count == ctx->nodes.count) {
+			xent_ispc_quantize_f32(ctx->nodes.layout.abs_x + 1, count, scale);
+			xent_ispc_quantize_f32(ctx->nodes.layout.abs_y + 1, count, scale);
+			xent_ispc_quantize_f32(ctx->nodes.layout.decided_w + 1, count, scale);
+			xent_ispc_quantize_f32(ctx->nodes.layout.decided_h + 1, count, scale);
+			return;
+		}
+
+		size_t buf_bytes = sizeof(float) * ( size_t ) count;
+		float *buf_x     = ( float * ) xent_scratch_alloc(ctx, buf_bytes, _Alignof(float));
+		float *buf_y     = ( float * ) xent_scratch_alloc(ctx, buf_bytes, _Alignof(float));
+		float *buf_w     = ( float * ) xent_scratch_alloc(ctx, buf_bytes, _Alignof(float));
+		float *buf_h     = ( float * ) xent_scratch_alloc(ctx, buf_bytes, _Alignof(float));
+		if (buf_x && buf_y && buf_w && buf_h) {
+			for (uint32_t i = 0; i < count; ++i) {
+				XentNodeId n = ctx->work_order [i];
+				buf_x [i]   = ctx->nodes.layout.abs_x [n];
+				buf_y [i]   = ctx->nodes.layout.abs_y [n];
+				buf_w [i]   = ctx->nodes.layout.decided_w [n];
+				buf_h [i]   = ctx->nodes.layout.decided_h [n];
+			}
+			xent_ispc_quantize_f32(buf_x, count, scale);
+			xent_ispc_quantize_f32(buf_y, count, scale);
+			xent_ispc_quantize_f32(buf_w, count, scale);
+			xent_ispc_quantize_f32(buf_h, count, scale);
+			for (uint32_t i = 0; i < count; ++i) {
+				XentNodeId n                        = ctx->work_order [i];
+				ctx->nodes.layout.abs_x [n]         = buf_x [i];
+				ctx->nodes.layout.abs_y [n]         = buf_y [i];
+				ctx->nodes.layout.decided_w [n]     = buf_w [i];
+				ctx->nodes.layout.decided_h [n]     = buf_h [i];
+			}
+			return;
+		}
 	}
 #endif
-	for (uint32_t i = 0; i < ctx->work_count; ++i) {
+	for (uint32_t i = 0; i < count; ++i) {
 		XentNodeId n = ctx->work_order [i];
 		if (xent_is_valid_node(ctx, n)) xent_quantize_node_layout(ctx, n);
 	}

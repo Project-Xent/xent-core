@@ -16,6 +16,8 @@ typedef struct FlexChildCase {
 	char const   *text;
 	XentFlexAlign align_self;
 	float         basis;
+	float         grow;
+	float         shrink;
 	XentSize      min_size;
 	XentSize      max_size;
 	XentInsets    margin;
@@ -68,6 +70,8 @@ static XentNodeId flex_make_child(XentContext *ctx, XentNodeId root, FlexChildCa
 	if (spec->text) xent_set_text(ctx, node, spec->text);
 	if (spec->align_self != XENT_FLEX_ALIGN_AUTO) xent_set_flex_align_self(ctx, node, spec->align_self);
 	if (isfinite(spec->basis)) xent_set_flex_basis(ctx, node, spec->basis);
+	if (!isnan(spec->grow)) xent_set_flex_grow(ctx, node, spec->grow);
+	if (!isnan(spec->shrink)) xent_set_flex_shrink(ctx, node, spec->shrink);
 	if (has_finite_size(spec->min_size)) xent_set_min_size(ctx, node, spec->min_size);
 	if (has_finite_size(spec->max_size)) xent_set_max_size(ctx, node, spec->max_size);
 	if (has_finite_inset_value(spec->margin)) xent_set_margin(ctx, node, spec->margin);
@@ -136,8 +140,8 @@ static int test_flex_table_cases(void) {
 	        .align_items     = XENT_FLEX_ALIGN_START,
 	        .child_count     = 2,
 	        .children        = {
-	            {.size = {50.0f, 20.0f}, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .basis = NAN, .expected_x = 100.0f, .expected_y = 0.0f, .check_mask = FCHK_X | FCHK_Y},
-	            {.size = {50.0f, 20.0f}, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .basis = NAN, .expected_x = 150.0f, .expected_y = 0.0f, .check_mask = FCHK_X | FCHK_Y},
+	            {.size = {50.0f, 20.0f}, .basis = NAN, .grow = NAN, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_x = 100.0f, .expected_y = 0.0f, .check_mask = FCHK_X | FCHK_Y},
+	            {.size = {50.0f, 20.0f}, .basis = NAN, .grow = NAN, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_x = 150.0f, .expected_y = 0.0f, .check_mask = FCHK_X | FCHK_Y},
 	        },
 	        .eps                  = 0.2f,
 	        .relayout_first_basis = FLEX_NO_RELAYOUT,
@@ -150,8 +154,8 @@ static int test_flex_table_cases(void) {
 	        .align_items     = XENT_FLEX_ALIGN_START,
 	        .child_count     = 2,
 	        .children        = {
-	            {.size = {50.0f, 20.0f}, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .basis = NAN, .expected_x = 0.0f, .check_mask = FCHK_X},
-	            {.size = {50.0f, 20.0f}, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .basis = NAN, .expected_x = 250.0f, .check_mask = FCHK_X},
+	            {.size = {50.0f, 20.0f}, .basis = NAN, .grow = NAN, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_x = 0.0f, .check_mask = FCHK_X},
+	            {.size = {50.0f, 20.0f}, .basis = NAN, .grow = NAN, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_x = 250.0f, .check_mask = FCHK_X},
 	        },
 	        .eps                  = 0.2f,
 	        .relayout_first_basis = FLEX_NO_RELAYOUT,
@@ -164,8 +168,8 @@ static int test_flex_table_cases(void) {
 	        .align_items     = XENT_FLEX_ALIGN_CENTER,
 	        .child_count     = 2,
 	        .children        = {
-	            {.size = {50.0f, 20.0f}, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .basis = NAN, .expected_x = 0.0f, .expected_y = 40.0f, .check_mask = FCHK_X | FCHK_Y},
-	            {.size = {50.0f, 20.0f}, .align_self = XENT_FLEX_ALIGN_END, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .basis = NAN, .expected_x = 50.0f, .expected_y = 80.0f, .check_mask = FCHK_X | FCHK_Y},
+	            {.size = {50.0f, 20.0f}, .basis = NAN, .grow = NAN, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_x = 0.0f, .expected_y = 40.0f, .check_mask = FCHK_X | FCHK_Y},
+	            {.size = {50.0f, 20.0f}, .align_self = XENT_FLEX_ALIGN_END, .basis = NAN, .grow = NAN, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_x = 50.0f, .expected_y = 80.0f, .check_mask = FCHK_X | FCHK_Y},
 	        },
 	        .eps                  = 0.2f,
 	        .relayout_first_basis = FLEX_NO_RELAYOUT,
@@ -178,8 +182,8 @@ static int test_flex_table_cases(void) {
 	        .align_items     = XENT_FLEX_ALIGN_START,
 	        .child_count     = 2,
 	        .children        = {
-	            {.size = {50.0f, 20.0f}, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .basis = NAN, .expected_x = 250.0f, .check_mask = FCHK_X},
-	            {.size = {50.0f, 20.0f}, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .basis = NAN, .expected_x = 200.0f, .check_mask = FCHK_X},
+	            {.size = {50.0f, 20.0f}, .basis = NAN, .grow = NAN, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_x = 250.0f, .check_mask = FCHK_X},
+	            {.size = {50.0f, 20.0f}, .basis = NAN, .grow = NAN, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_x = 200.0f, .check_mask = FCHK_X},
 	        },
 	        .eps                  = 0.2f,
 	        .relayout_first_basis = FLEX_NO_RELAYOUT,
@@ -193,9 +197,9 @@ static int test_flex_table_cases(void) {
 	        .wrap            = 1,
 	        .child_count     = 3,
 	        .children        = {
-	            {.size = {50.0f, 20.0f}, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .basis = NAN, .expected_y = 0.0f, .check_mask = FCHK_Y},
-	            {.size = {50.0f, 20.0f}, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .basis = NAN, .expected_y = 0.0f, .check_mask = FCHK_Y},
-	            {.size = {50.0f, 20.0f}, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .basis = NAN, .expected_x = 0.0f, .expected_y = 20.0f, .check_mask = FCHK_X | FCHK_Y},
+	            {.size = {50.0f, 20.0f}, .basis = NAN, .grow = NAN, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_y = 0.0f, .check_mask = FCHK_Y},
+	            {.size = {50.0f, 20.0f}, .basis = NAN, .grow = NAN, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_y = 0.0f, .check_mask = FCHK_Y},
+	            {.size = {50.0f, 20.0f}, .basis = NAN, .grow = NAN, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_x = 0.0f, .expected_y = 20.0f, .check_mask = FCHK_X | FCHK_Y},
 	        },
 	        .eps                  = 0.2f,
 	        .relayout_first_basis = FLEX_NO_RELAYOUT,
@@ -210,10 +214,10 @@ static int test_flex_table_cases(void) {
 	        .align_content   = XENT_FLEX_ALIGN_CONTENT_SPACE_BETWEEN,
 	        .child_count     = 4,
 	        .children        = {
-	            {.size = {50.0f, 20.0f}, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .basis = NAN, .expected_y = 0.0f, .check_mask = FCHK_Y},
-	            {.size = {50.0f, 20.0f}, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .basis = NAN},
-	            {.size = {50.0f, 20.0f}, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .basis = NAN, .expected_y = 80.0f, .check_mask = FCHK_Y},
-	            {.size = {50.0f, 20.0f}, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .basis = NAN},
+	            {.size = {50.0f, 20.0f}, .basis = NAN, .grow = NAN, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_y = 0.0f, .check_mask = FCHK_Y},
+	            {.size = {50.0f, 20.0f}, .basis = NAN, .grow = NAN, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}},
+	            {.size = {50.0f, 20.0f}, .basis = NAN, .grow = NAN, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_y = 80.0f, .check_mask = FCHK_Y},
+	            {.size = {50.0f, 20.0f}, .basis = NAN, .grow = NAN, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}},
 	        },
 	        .eps                  = 0.5f,
 	        .relayout_first_basis = FLEX_NO_RELAYOUT,
@@ -226,7 +230,7 @@ static int test_flex_table_cases(void) {
 	        .align_items     = XENT_FLEX_ALIGN_START,
 	        .child_count     = 1,
 	        .children        = {
-	            {.size = {30.0f, 20.0f}, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .basis = NAN, .expected_x = 90.0f, .check_mask = FCHK_X},
+	            {.size = {30.0f, 20.0f}, .basis = NAN, .grow = NAN, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_x = 90.0f, .check_mask = FCHK_X},
 	        },
 	        .eps                  = 0.2f,
 	        .relayout_first_basis = FLEX_NO_RELAYOUT,
@@ -239,8 +243,8 @@ static int test_flex_table_cases(void) {
 	        .align_items     = XENT_FLEX_ALIGN_BASELINE,
 	        .child_count     = 2,
 	        .children        = {
-	            {.size = {80.0f, 20.0f}, .text = "small", .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .basis = NAN},
-	            {.size = {80.0f, 40.0f}, .text = "large", .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .basis = NAN},
+	            {.size = {80.0f, 20.0f}, .text = "small", .basis = NAN, .grow = NAN, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}},
+	            {.size = {80.0f, 40.0f}, .text = "large", .basis = NAN, .grow = NAN, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}},
 	        },
 	        .relative_assert      = FREL_FIRST_BELOW,
 	        .eps                  = 0.2f,
@@ -254,8 +258,8 @@ static int test_flex_table_cases(void) {
 	        .align_items     = XENT_FLEX_ALIGN_BASELINE,
 	        .child_count     = 2,
 	        .children        = {
-	            {.size = {50.0f, 60.0f}, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .basis = NAN},
-	            {.size = {50.0f, 20.0f}, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .basis = NAN},
+	            {.size = {50.0f, 60.0f}, .basis = NAN, .grow = NAN, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}},
+	            {.size = {50.0f, 20.0f}, .basis = NAN, .grow = NAN, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}},
 	        },
 	        .relative_assert      = FREL_BASELINE_LAST,
 	        .eps                  = 0.2f,
@@ -269,7 +273,7 @@ static int test_flex_table_cases(void) {
 	        .align_items     = XENT_FLEX_ALIGN_START,
 	        .child_count     = 1,
 	        .children        = {
-	            {.size = {NAN, 20.0f}, .basis = 10.0f, .min_size = {30.0f, 0.0f}, .max_size = {40.0f, 100.0f}, .margin = {NAN, NAN, NAN, NAN}, .expected_w = 30.0f, .check_mask = FCHK_W},
+	            {.size = {NAN, 20.0f}, .basis = 10.0f, .grow = NAN, .shrink = NAN, .min_size = {30.0f, 0.0f}, .max_size = {40.0f, 100.0f}, .margin = {NAN, NAN, NAN, NAN}, .expected_w = 30.0f, .check_mask = FCHK_W},
 	        },
 	        .eps                  = 0.2f,
 	        .relayout_first_basis = 90.0f,
@@ -283,7 +287,7 @@ static int test_flex_table_cases(void) {
 	        .align_items     = XENT_FLEX_ALIGN_STRETCH,
 	        .child_count     = 1,
 	        .children        = {
-	            {.size = {50.0f, NAN}, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {0.0f, 10.0f, 0.0f, 15.0f}, .basis = NAN, .expected_y = 10.0f, .expected_h = 75.0f, .check_mask = FCHK_Y | FCHK_H},
+	            {.size = {50.0f, NAN}, .basis = NAN, .grow = NAN, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {0.0f, 10.0f, 0.0f, 15.0f}, .expected_y = 10.0f, .expected_h = 75.0f, .check_mask = FCHK_Y | FCHK_H},
 	        },
 	        .eps                  = 0.2f,
 	        .relayout_first_basis = FLEX_NO_RELAYOUT,
@@ -296,9 +300,148 @@ static int test_flex_table_cases(void) {
 	return 0;
 }
 
+static int test_flex_freeze_cases(void) {
+	static FlexCase const cases [] = {
+	    /* 1: single child grow + max clamp
+	       container=400, basis=100, grow=1, max=250. delta=300, clamped to 250. */
+	    {
+	        .root_size   = {400.0f, 40.0f},
+	        .flex_dir    = XENT_FLEX_ROW,
+	        .justify     = XENT_FLEX_JUSTIFY_START,
+	        .align_items = XENT_FLEX_ALIGN_START,
+	        .child_count = 1,
+	        .children    = {
+	            {.size = {NAN, 20.0f}, .basis = 100.0f, .grow = 1.0f, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {250.0f, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_w = 250.0f, .check_mask = FCHK_W},
+	        },
+	        .eps                  = 0.5f,
+	        .relayout_first_basis = FLEX_NO_RELAYOUT,
+	    },
+	    /* 2: two children grow, one hits max — overflow redistributed.
+	       container=400, A: basis=100 grow=1 max=150, B: basis=100 grow=1.
+	       Round 1: each +100 -> A=200 clamped 150. Round 2: B=100+150=250. */
+	    {
+	        .root_size   = {400.0f, 40.0f},
+	        .flex_dir    = XENT_FLEX_ROW,
+	        .justify     = XENT_FLEX_JUSTIFY_START,
+	        .align_items = XENT_FLEX_ALIGN_START,
+	        .child_count = 2,
+	        .children    = {
+	            {.size = {NAN, 20.0f}, .basis = 100.0f, .grow = 1.0f, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {150.0f, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_w = 150.0f, .check_mask = FCHK_W},
+	            {.size = {NAN, 20.0f}, .basis = 100.0f, .grow = 1.0f, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_w = 250.0f, .check_mask = FCHK_W},
+	        },
+	        .eps                  = 0.5f,
+	        .relayout_first_basis = FLEX_NO_RELAYOUT,
+	    },
+	    /* 3: single child shrink + min clamp.
+	       container=100, basis=200, shrink=1, min=150. delta=-100, clamped to 150. */
+	    {
+	        .root_size   = {100.0f, 40.0f},
+	        .flex_dir    = XENT_FLEX_ROW,
+	        .justify     = XENT_FLEX_JUSTIFY_START,
+	        .align_items = XENT_FLEX_ALIGN_START,
+	        .child_count = 1,
+	        .children    = {
+	            {.size = {NAN, 20.0f}, .basis = 200.0f, .grow = NAN, .shrink = 1.0f, .min_size = {150.0f, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_w = 150.0f, .check_mask = FCHK_W},
+	        },
+	        .eps                  = 0.5f,
+	        .relayout_first_basis = FLEX_NO_RELAYOUT,
+	    },
+	    /* 4: two children shrink, one hits min — deficit redistributed.
+	       container=200, A: basis=200 shrink=1 min=180, B: basis=200 shrink=1.
+	       delta=-200. Round 1: each -100 -> A=100 clamped 180. Round 2: B=200-180=20. */
+	    {
+	        .root_size   = {200.0f, 40.0f},
+	        .flex_dir    = XENT_FLEX_ROW,
+	        .justify     = XENT_FLEX_JUSTIFY_START,
+	        .align_items = XENT_FLEX_ALIGN_START,
+	        .child_count = 2,
+	        .children    = {
+	            {.size = {NAN, 20.0f}, .basis = 200.0f, .grow = NAN, .shrink = 1.0f, .min_size = {180.0f, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_w = 180.0f, .check_mask = FCHK_W},
+	            {.size = {NAN, 20.0f}, .basis = 200.0f, .grow = NAN, .shrink = 1.0f, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_w = 20.0f, .check_mask = FCHK_W},
+	        },
+	        .eps                  = 0.5f,
+	        .relayout_first_basis = FLEX_NO_RELAYOUT,
+	    },
+	    /* 5: multi-round cascading freeze (grow).
+	       container=600, A: basis=100 grow=1 max=120, B: basis=100 grow=1 max=180, C: basis=100 grow=1.
+	       delta=300. Round 1: all +100=200 -> A clamped 120. Round 2: B,C each +140=240 -> B clamped 180.
+	       Round 3: C=100+200=300. */
+	    {
+	        .root_size   = {600.0f, 40.0f},
+	        .flex_dir    = XENT_FLEX_ROW,
+	        .justify     = XENT_FLEX_JUSTIFY_START,
+	        .align_items = XENT_FLEX_ALIGN_START,
+	        .child_count = 3,
+	        .children    = {
+	            {.size = {NAN, 20.0f}, .basis = 100.0f, .grow = 1.0f, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {120.0f, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_w = 120.0f, .check_mask = FCHK_W},
+	            {.size = {NAN, 20.0f}, .basis = 100.0f, .grow = 1.0f, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {180.0f, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_w = 180.0f, .check_mask = FCHK_W},
+	            {.size = {NAN, 20.0f}, .basis = 100.0f, .grow = 1.0f, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_w = 300.0f, .check_mask = FCHK_W},
+	        },
+	        .eps                  = 0.5f,
+	        .relayout_first_basis = FLEX_NO_RELAYOUT,
+	    },
+	    /* 6: all children freeze (grow).
+	       container=300, A: basis=100 grow=1 max=120, B: basis=100 grow=1 max=120.
+	       delta=100. Round 1: each +50=150 -> both clamped 120. All frozen. */
+	    {
+	        .root_size   = {300.0f, 40.0f},
+	        .flex_dir    = XENT_FLEX_ROW,
+	        .justify     = XENT_FLEX_JUSTIFY_START,
+	        .align_items = XENT_FLEX_ALIGN_START,
+	        .child_count = 2,
+	        .children    = {
+	            {.size = {NAN, 20.0f}, .basis = 100.0f, .grow = 1.0f, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {120.0f, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_w = 120.0f, .check_mask = FCHK_W},
+	            {.size = {NAN, 20.0f}, .basis = 100.0f, .grow = 1.0f, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {120.0f, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_w = 120.0f, .check_mask = FCHK_W},
+	        },
+	        .eps                  = 0.5f,
+	        .relayout_first_basis = FLEX_NO_RELAYOUT,
+	    },
+	    /* 7: basis already exceeds max.
+	       container=400, basis=300, grow=0, shrink=0, max=200.
+	       No grow/shrink contribution, but freeze loop clamps to max. */
+	    {
+	        .root_size   = {400.0f, 40.0f},
+	        .flex_dir    = XENT_FLEX_ROW,
+	        .justify     = XENT_FLEX_JUSTIFY_START,
+	        .align_items = XENT_FLEX_ALIGN_START,
+	        .child_count = 1,
+	        .children    = {
+	            {.size = {NAN, 20.0f}, .basis = 300.0f, .grow = 0.0f, .shrink = 0.0f, .min_size = {NAN, NAN}, .max_size = {200.0f, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_w = 200.0f, .check_mask = FCHK_W},
+	        },
+	        .eps                  = 0.5f,
+	        .relayout_first_basis = FLEX_NO_RELAYOUT,
+	    },
+	    /* 8: grow=0 shrink=0 fixed item alongside a growing item.
+	       container=400, A: basis=100 grow=0 shrink=0 (fixed), B: basis=100 grow=1.
+	       delta=200. A stays 100, B gets all -> 300. */
+	    {
+	        .root_size   = {400.0f, 40.0f},
+	        .flex_dir    = XENT_FLEX_ROW,
+	        .justify     = XENT_FLEX_JUSTIFY_START,
+	        .align_items = XENT_FLEX_ALIGN_START,
+	        .child_count = 2,
+	        .children    = {
+	            {.size = {NAN, 20.0f}, .basis = 100.0f, .grow = 0.0f, .shrink = 0.0f, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_w = 100.0f, .check_mask = FCHK_W},
+	            {.size = {NAN, 20.0f}, .basis = 100.0f, .grow = 1.0f, .shrink = NAN, .min_size = {NAN, NAN}, .max_size = {NAN, NAN}, .margin = {NAN, NAN, NAN, NAN}, .expected_w = 300.0f, .check_mask = FCHK_W},
+	        },
+	        .eps                  = 0.5f,
+	        .relayout_first_basis = FLEX_NO_RELAYOUT,
+	    },
+	};
+
+	for (size_t i = 0; i < sizeof(cases) / sizeof(cases [0]); ++i) {
+		if (run_flex_case(&cases [i]) != 0) {
+			fprintf(stderr, "  freeze case %zu failed\n", i + 1u);
+			return 1;
+		}
+	}
+	return 0;
+}
+
 int main(void) {
 	XentTestFn const tests[] = {
 	    test_flex_table_cases,
+	    test_flex_freeze_cases,
 	};
 
 	return test_run_all(tests, sizeof(tests) / sizeof(tests [0]));

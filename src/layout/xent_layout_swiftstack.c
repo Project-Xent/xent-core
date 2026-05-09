@@ -79,19 +79,22 @@ typedef struct StackReduceRequest {
 	bool               fixed;
 } StackReduceRequest;
 
-static StackChildData const *g_swiftstack_sort_children = NULL;
-
 static float                 xent_swiftstack_clampf(float v, float min_v, float max_v) {
 	if (v < min_v) v = min_v;
 	if (v > max_v) v = max_v;
 	return v;
 }
 
-static int xent_compare_swiftstack_order_asc(void const *a, void const *b) {
+#ifdef _WIN32
+static int xent_compare_swiftstack_order_asc(void *context, void const *a, void const *b) {
+#else
+static int xent_compare_swiftstack_order_asc(void const *a, void const *b, void *context) {
+#endif
+	StackChildData const *children = ( StackChildData const * ) context;
 	uint32_t ia = *( uint32_t const * ) a;
 	uint32_t ib = *( uint32_t const * ) b;
-	float    pa = g_swiftstack_sort_children [ia].priority;
-	float    pb = g_swiftstack_sort_children [ib].priority;
+	float    pa = children [ia].priority;
+	float    pb = children [ib].priority;
 	if (pa < pb) return -1;
 	if (pa > pb) return 1;
 	if (ia < ib) return -1;
@@ -362,9 +365,13 @@ static void stack_reduce_members(XentContext *ctx, StackBuffers const *buffers, 
 static void stack_sort_by_priority(XentContext *ctx, StackBuffers const *buffers, uint32_t count) {
 	double sort_start_ms        = xent_now_ms();
 	ctx->profile.sort_calls    += 1u;
-	g_swiftstack_sort_children  = buffers->children;
-	qsort(buffers->priority_order, ( size_t ) count, sizeof(uint32_t), xent_compare_swiftstack_order_asc);
-	g_swiftstack_sort_children       = NULL;
+#ifdef _WIN32
+	qsort_s(buffers->priority_order, ( size_t ) count, sizeof(uint32_t),
+	        xent_compare_swiftstack_order_asc, ( void * ) buffers->children);
+#else
+	qsort_r(buffers->priority_order, ( size_t ) count, sizeof(uint32_t),
+	        xent_compare_swiftstack_order_asc, ( void * ) buffers->children);
+#endif
 	ctx->profile.swiftstack_sort_ms += (xent_now_ms() - sort_start_ms);
 }
 

@@ -8,6 +8,8 @@ typedef struct FlexChildData {
 	XentNodeId id;
 	float      base_main;
 	float      final_main;
+	float      min_main;
+	float      max_main;
 	float      base_cross;
 	float      final_cross;
 	float      baseline_from_top;
@@ -19,6 +21,7 @@ typedef struct FlexChildData {
 	float      shrink;
 	uint8_t    align_self;
 	uint8_t    resolved_align;
+	bool       frozen;
 } FlexChildData;
 
 typedef struct FlexLineData {
@@ -308,6 +311,8 @@ static FlexChildData flex_describe_child(XentContext *ctx, FlexLayoutFrame const
 	data.grow               = ctx->nodes.flex.grow [child];
 	data.shrink             = ctx->nodes.flex.shrink [child];
 	data.align_self         = ctx->nodes.flex.align_self [child];
+	data.min_main           = frame->row ? ctx->nodes.layout.min_w [child] : ctx->nodes.layout.min_h [child];
+	data.max_main           = frame->row ? ctx->nodes.layout.max_w [child] : ctx->nodes.layout.max_h [child];
 	flex_describe_child_size(ctx, frame, child, &data);
 	return data;
 }
@@ -422,29 +427,57 @@ static bool flex_distribute_line_main_ispc(FlexLineData const *line, FlexChildDa
 }
 #endif
 
-static float flex_distributed_child_main(FlexLineData const *line, FlexChildData const *entry, float delta) {
-	float size = entry->base_main;
-	if (delta > 0.0f && line->sum_grow > 0.0f) return size + delta * (entry->grow / line->sum_grow);
-	if (delta < 0.0f && line->sum_shrink_weight > 0.0f) {
-		float weight  = flex_child_shrink_weight(entry);
-		size         += delta * (weight / line->sum_shrink_weight);
-		return size < 0.0f ? 0.0f : size;
-	}
-	return size;
-}
-
-static void flex_distribute_line_main_scalar(FlexLineData const *line, FlexChildData *children, float delta) {
-	for (uint32_t i = 0u; i < line->count; ++i) {
-		FlexChildData *entry = &children [line->start + i];
-		entry->final_main    = flex_distributed_child_main(line, entry, delta);
-	}
-}
-
 static void flex_distribute_line_main(FlexLineData const *line, FlexChildData *children, float delta) {
-#if XENT_ISPC_ENABLED
-	if (flex_distribute_line_main_ispc(line, children, delta)) return;
-#endif
-	flex_distribute_line_main_scalar(line, children, delta);
+	uint32_t count   = line->count;
+	bool     growing = delta > 0.0f;
+
+	for (uint32_t i = 0u; i < count; ++i) children [line->start + i].frozen = false;
+
+	float remaining_delta     = delta;
+	float remaining_grow      = line->sum_grow;
+	float remaining_shrink_wt = line->sum_shrink_weight;
+
+	for (uint32_t iteration = 0u; iteration <= count; ++iteration) {
+		for (uint32_t i = 0u; i < count; ++i) {
+			FlexChildData *entry = &children [line->start + i];
+			if (entry->frozen) continue;
+
+			float size = entry->base_main;
+			if (growing && remaining_grow > 0.0f)
+				size += remaining_delta * (entry->grow / remaining_grow);
+			else if (!growing && remaining_shrink_wt > 0.0f) {
+				float weight = flex_child_shrink_weight(entry);
+				size        += remaining_delta * (weight / remaining_shrink_wt);
+				if (size < 0.0f) size = 0.0f;
+			}
+			entry->final_main = size;
+		}
+
+		if (iteration == count) break;
+
+		bool any_frozen_this_round = false;
+		for (uint32_t i = 0u; i < count; ++i) {
+			FlexChildData *entry = &children [line->start + i];
+			if (entry->frozen) continue;
+
+			float clamped = entry->final_main;
+			if (clamped < entry->min_main) clamped = entry->min_main;
+			if (clamped > entry->max_main) clamped = entry->max_main;
+
+			if (clamped != entry->final_main) {
+				entry->final_main     = clamped;
+				entry->frozen         = true;
+				any_frozen_this_round = true;
+				remaining_delta      -= (clamped - entry->base_main);
+				remaining_grow       -= entry->grow;
+				remaining_shrink_wt  -= flex_child_shrink_weight(entry);
+			}
+		}
+
+		if (!any_frozen_this_round) break;
+		if (remaining_grow < 0.0f) remaining_grow = 0.0f;
+		if (remaining_shrink_wt < 0.0f) remaining_shrink_wt = 0.0f;
+	}
 }
 
 #if XENT_ISPC_ENABLED

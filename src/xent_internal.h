@@ -9,7 +9,9 @@
 
 #include "xent/xent.h"
 
-#define XENT_GRID_MAX_TRACKS 16
+#define XENT_GRID_MAX_TRACKS    16
+#define XENT_CACHE_INIT_CAP     64
+#define XENT_CACHE_MAX_CAP      4096
 
 typedef struct XentGridDef {
 	uint8_t row_count;

@@ -282,6 +282,7 @@ typedef struct XentTextCacheStats {
 	uint64_t hits;
 	uint64_t misses;
 	uint64_t inserts;
+	uint64_t evictions;
 } XentTextCacheStats;
 
 typedef struct XentShapedGlyph {

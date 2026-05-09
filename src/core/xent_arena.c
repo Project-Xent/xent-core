@@ -1,11 +1,37 @@
 #include "../xent_internal.h"
 
-static bool xent_realloc_and_zero(void **ptr, size_t elem_size, uint32_t old_cap, uint32_t new_cap) {
-	void *new_mem = realloc(*ptr, elem_size * ( size_t ) new_cap);
-	if (!new_mem) return false;
-	*ptr = new_mem;
-	if (new_cap > old_cap)
-		memset(( uint8_t * ) *ptr + elem_size * ( size_t ) old_cap, 0, elem_size * ( size_t ) (new_cap - old_cap));
+#define XENT_GROW_FIELD_MAX 80
+
+typedef struct XentGrowField {
+	void  **slot;
+	size_t  elem_size;
+} XentGrowField;
+
+static bool xent_grow_arrays_two_phase(
+  XentGrowField *fields, uint32_t field_count, uint32_t old_cap, uint32_t new_cap
+) {
+	void *new_ptrs [XENT_GROW_FIELD_MAX];
+
+	for (uint32_t i = 0; i < field_count; ++i) {
+		size_t new_bytes = fields [i].elem_size * ( size_t ) new_cap;
+		new_ptrs [i]     = malloc(new_bytes);
+		if (!new_ptrs [i]) {
+			for (uint32_t j = 0; j < i; ++j) free(new_ptrs [j]);
+			return false;
+		}
+	}
+
+	for (uint32_t i = 0; i < field_count; ++i) {
+		size_t old_bytes = fields [i].elem_size * ( size_t ) old_cap;
+		size_t new_bytes = fields [i].elem_size * ( size_t ) new_cap;
+		if (*fields [i].slot) {
+			memcpy(new_ptrs [i], *fields [i].slot, old_bytes);
+			free(*fields [i].slot);
+		}
+		memset(( uint8_t * ) new_ptrs [i] + old_bytes, 0, new_bytes - old_bytes);
+		*fields [i].slot = new_ptrs [i];
+	}
+
 	return true;
 }
 
@@ -28,8 +54,13 @@ bool xent_ensure_node_capacity(XentContext *ctx, uint32_t needed) {
 	uint32_t new_cap = old_cap ? old_cap : 64u;
 	while (new_cap <= needed) new_cap *= 2u;
 
-#define GROW_ARRAY(field)                                                                                     \
-	if (!xent_realloc_and_zero(( void ** ) &n->field, sizeof(*n->field), old_cap, new_cap)) { return false; }
+	uint32_t       fc     = 0;
+	XentGrowField  fields [XENT_GROW_FIELD_MAX];
+
+#define GROW_ARRAY(field)                                             \
+	fields [fc].slot      = ( void ** ) &n->field;                    \
+	fields [fc].elem_size = sizeof(*n->field);                        \
+	fc++;
 
 	GROW_ARRAY(lifetime.alive);
 
@@ -122,6 +153,8 @@ bool xent_ensure_node_capacity(XentContext *ctx, uint32_t needed) {
 	GROW_ARRAY(grid.column_span);
 
 #undef GROW_ARRAY
+
+	if (!xent_grow_arrays_two_phase(fields, fc, old_cap, new_cap)) return false;
 
 	for (uint32_t i = old_cap; i < new_cap; ++i) {
 		n->layout.style_w [i]                   = NAN;

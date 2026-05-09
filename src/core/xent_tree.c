@@ -116,14 +116,7 @@ XentNodeId xent_create_node(XentContext *ctx) {
 	return id;
 }
 
-static void xent_destroy_subtree(XentContext *ctx, XentNodeId node) {
-	XentNodeId child = ctx->nodes.topology.first_child [node];
-	while (child != XENT_NODE_INVALID) {
-		XentNodeId next = ctx->nodes.topology.next_sibling [child];
-		xent_destroy_subtree(ctx, child);
-		child = next;
-	}
-
+static void xent_cleanup_single_node(XentContext *ctx, XentNodeId node) {
 	free(ctx->nodes.text.content [node]);
 	ctx->nodes.text.content [node]         = NULL;
 	ctx->nodes.text.intrinsic_valid [node] = 0u;
@@ -157,6 +150,52 @@ static void xent_destroy_subtree(XentContext *ctx, XentNodeId node) {
 	ctx->nodes.topology.child_count [node]  = 0u;
 	ctx->nodes.layout.dirty_flags [node]    = XENT_DIRTY_NONE;
 	( void ) xent_push_free_id(ctx, node);
+}
+
+static void xent_destroy_subtree(XentContext *ctx, XentNodeId node) {
+	uint32_t    stack_cap  = 64u;
+	uint32_t    stack_top  = 0u;
+	XentNodeId *stack      = ( XentNodeId * ) malloc(sizeof(XentNodeId) * stack_cap);
+	if (!stack) { xent_cleanup_single_node(ctx, node); return; }
+
+	uint32_t    list_cap   = 64u;
+	uint32_t    list_count = 0u;
+	XentNodeId *list       = ( XentNodeId * ) malloc(sizeof(XentNodeId) * list_cap);
+	if (!list) { free(stack); xent_cleanup_single_node(ctx, node); return; }
+
+	stack [stack_top++] = node;
+
+	while (stack_top > 0u) {
+		XentNodeId cur = stack [--stack_top];
+
+		if (list_count >= list_cap) {
+			uint32_t    new_cap = list_cap * 2u;
+			XentNodeId *new_mem = ( XentNodeId * ) realloc(list, sizeof(XentNodeId) * new_cap);
+			if (!new_mem) break;
+			list     = new_mem;
+			list_cap = new_cap;
+		}
+		list [list_count++] = cur;
+
+		XentNodeId child = ctx->nodes.topology.first_child [cur];
+		while (child != XENT_NODE_INVALID) {
+			if (stack_top >= stack_cap) {
+				uint32_t    new_cap = stack_cap * 2u;
+				XentNodeId *new_mem = ( XentNodeId * ) realloc(stack, sizeof(XentNodeId) * new_cap);
+				if (!new_mem) break;
+				stack     = new_mem;
+				stack_cap = new_cap;
+			}
+			stack [stack_top++] = child;
+			child               = ctx->nodes.topology.next_sibling [child];
+		}
+	}
+
+	for (uint32_t i = list_count; i > 0u; --i)
+		xent_cleanup_single_node(ctx, list [i - 1u]);
+
+	free(list);
+	free(stack);
 }
 
 bool xent_destroy_node(XentContext *ctx, XentNodeId node) {

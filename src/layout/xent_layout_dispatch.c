@@ -281,6 +281,7 @@ bool xent_layout(XentContext *ctx, XentNodeId root, float available_width, float
 
 	xent_run_selected_layout(ctx, &inputs, strategy, &dirty_plan);
 
+	if (ctx->work_count > 0u) xent_batch_quantize_layout(ctx);
 	if (ctx->work_count > 0u) xent_clear_dirty_in_work_order(ctx);
 	else xent_compact_dirty_nodes(ctx);
 	ctx->last_layout_root        = root;

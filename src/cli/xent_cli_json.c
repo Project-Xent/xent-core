@@ -1,36 +1,33 @@
 #include "../xent_internal.h"
 
+static char const *json_short_escape(unsigned char c) {
+	switch (c) {
+	case '\n' : return "\\n";
+	case '\r' : return "\\r";
+	case '\t' : return "\\t";
+	case '\b' : return "\\b";
+	case '\f' : return "\\f";
+	default   : return NULL;
+	}
+}
+
+static void json_escape_char(FILE *out, unsigned char c) {
+	char const *short_escape = json_short_escape(c);
+	if (short_escape) {
+		fputs(short_escape, out);
+		return;
+	}
+	if (c < 0x20u) {
+		fprintf(out, "\\u%04x", ( unsigned ) c);
+		return;
+	}
+	if (c == '"' || c == '\\') fputc('\\', out);
+	fputc(c, out);
+}
+
 static void json_escape(FILE *out, char const *text) {
 	if (!text) return;
-	while (*text) {
-		unsigned char c = ( unsigned char ) *text++;
-		if (c == '\n') {
-			fputs("\\n", out);
-			continue;
-		}
-		if (c == '\r') {
-			fputs("\\r", out);
-			continue;
-		}
-		if (c == '\t') {
-			fputs("\\t", out);
-			continue;
-		}
-		if (c == '\b') {
-			fputs("\\b", out);
-			continue;
-		}
-		if (c == '\f') {
-			fputs("\\f", out);
-			continue;
-		}
-		if (c < 0x20u) {
-			fprintf(out, "\\u%04x", ( unsigned ) c);
-			continue;
-		}
-		if (c == '"' || c == '\\') fputc('\\', out);
-		fputc(c, out);
-	}
+	while (*text) json_escape_char(out, ( unsigned char ) *text++);
 }
 
 static bool dump_json_node_open(XentContext const *ctx, XentNodeId node, FILE *out) {

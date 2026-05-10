@@ -56,7 +56,7 @@ typedef struct StackChildRect {
 } StackChildRect;
 
 typedef struct StackChildRectRequest {
-	XentContext             *ctx;
+	XentContext            *ctx;
 	StackLayoutFrame const *frame;
 	StackChildData const   *child;
 	StackBaselineInfo       baseline;
@@ -79,19 +79,22 @@ typedef struct StackReduceRequest {
 	bool               fixed;
 } StackReduceRequest;
 
-static StackChildData const *g_swiftstack_sort_children = NULL;
-
-static float                 xent_swiftstack_clampf(float v, float min_v, float max_v) {
+static float xent_swiftstack_clampf(float v, float min_v, float max_v) {
 	if (v < min_v) v = min_v;
 	if (v > max_v) v = max_v;
 	return v;
 }
 
-static int xent_compare_swiftstack_order_asc(void const *a, void const *b) {
-	uint32_t ia = *( uint32_t const * ) a;
-	uint32_t ib = *( uint32_t const * ) b;
-	float    pa = g_swiftstack_sort_children [ia].priority;
-	float    pb = g_swiftstack_sort_children [ib].priority;
+#ifdef _WIN32
+static int xent_compare_swiftstack_order_asc(void *context, void const *a, void const *b) {
+#else
+static int xent_compare_swiftstack_order_asc(void const *a, void const *b, void *context) {
+#endif
+	StackChildData const *children = ( StackChildData const * ) context;
+	uint32_t              ia       = *( uint32_t const * ) a;
+	uint32_t              ib       = *( uint32_t const * ) b;
+	float                 pa       = children [ia].priority;
+	float                 pb       = children [ib].priority;
 	if (pa < pb) return -1;
 	if (pa > pb) return 1;
 	if (ia < ib) return -1;
@@ -117,8 +120,8 @@ static void stack_begin_layout(XentLayoutRequest const *request, StackLayoutFram
 	float        available_h = request->available_h;
 	float        origin_x    = request->origin_x;
 	float        origin_y    = request->origin_y;
-	float width  = 0.0f;
-	float height = 0.0f;
+	float        width       = 0.0f;
+	float        height      = 0.0f;
 	xent_compute_intrinsic_size(ctx, node, available_w, available_h, &width, &height);
 
 	ctx->nodes.layout.proposed_w [node] = available_w;
@@ -184,15 +187,23 @@ static bool stack_axis_style(float style, float min_v, float max_v, float *out_v
 
 static bool stack_main_style(XentContext const *ctx, StackLayoutFrame const *frame, XentNodeId child, float *out_main) {
 	if (frame->horizontal)
-		return stack_axis_style(ctx->nodes.layout.style_w [child], ctx->nodes.layout.min_w [child], ctx->nodes.layout.max_w [child], out_main);
-	return stack_axis_style(ctx->nodes.layout.style_h [child], ctx->nodes.layout.min_h [child], ctx->nodes.layout.max_h [child], out_main);
+		return stack_axis_style(
+		  ctx->nodes.layout.style_w [child], ctx->nodes.layout.min_w [child], ctx->nodes.layout.max_w [child], out_main
+		);
+	return stack_axis_style(
+	  ctx->nodes.layout.style_h [child], ctx->nodes.layout.min_h [child], ctx->nodes.layout.max_h [child], out_main
+	);
 }
 
 static bool
 stack_cross_style(XentContext const *ctx, StackLayoutFrame const *frame, XentNodeId child, float *out_cross) {
 	if (frame->horizontal)
-		return stack_axis_style(ctx->nodes.layout.style_h [child], ctx->nodes.layout.min_h [child], ctx->nodes.layout.max_h [child], out_cross);
-	return stack_axis_style(ctx->nodes.layout.style_w [child], ctx->nodes.layout.min_w [child], ctx->nodes.layout.max_w [child], out_cross);
+		return stack_axis_style(
+		  ctx->nodes.layout.style_h [child], ctx->nodes.layout.min_h [child], ctx->nodes.layout.max_h [child], out_cross
+		);
+	return stack_axis_style(
+	  ctx->nodes.layout.style_w [child], ctx->nodes.layout.min_w [child], ctx->nodes.layout.max_w [child], out_cross
+	);
 }
 
 static float stack_intrinsic_cross(
@@ -249,9 +260,8 @@ static StackCollectStats stack_collect_children(
 }
 
 #if XENT_ISPC_ENABLED
-static bool stack_expand_spacers_ispc(
-  XentContext *ctx, StackBuffers const *buffers, StackCollectStats const *stats, float each
-) {
+static bool
+stack_expand_spacers_ispc(XentContext *ctx, StackBuffers const *buffers, StackCollectStats const *stats, float each) {
 	if (stats->count < 32u) return false;
 
 	uint8_t *spacer_mask = ( uint8_t * ) xent_scratch_alloc(ctx, stats->count, 1u);
@@ -266,9 +276,7 @@ static bool stack_expand_spacers_ispc(
 static void
 stack_expand_spacers(XentContext *ctx, StackBuffers const *buffers, StackCollectStats const *stats, float each) {
 #if XENT_ISPC_ENABLED
-	if (stack_expand_spacers_ispc(ctx, buffers, stats, each)) {
-		return;
-	}
+	if (stack_expand_spacers_ispc(ctx, buffers, stats, each)) return;
 #else
 	( void ) ctx;
 #endif
@@ -292,7 +300,9 @@ static bool stack_expand_priorities_ispc(
 		prio_weights [i] = buffers->children [i].priority;
 	}
 
-	xent_ispc_masked_fma_f32(buffers->main_sizes, prio_mask, prio_weights, stats->count, remainder, stats->priority_sum);
+	xent_ispc_masked_fma_f32(
+	  buffers->main_sizes, prio_mask, prio_weights, stats->count, remainder, stats->priority_sum
+	);
 	return true;
 }
 #endif
@@ -360,11 +370,19 @@ static void stack_reduce_members(XentContext *ctx, StackBuffers const *buffers, 
 }
 
 static void stack_sort_by_priority(XentContext *ctx, StackBuffers const *buffers, uint32_t count) {
-	double sort_start_ms        = xent_now_ms();
-	ctx->profile.sort_calls    += 1u;
-	g_swiftstack_sort_children  = buffers->children;
-	qsort(buffers->priority_order, ( size_t ) count, sizeof(uint32_t), xent_compare_swiftstack_order_asc);
-	g_swiftstack_sort_children       = NULL;
+	double sort_start_ms     = xent_now_ms();
+	ctx->profile.sort_calls += 1u;
+#ifdef _WIN32
+	qsort_s(
+	  buffers->priority_order, ( size_t ) count, sizeof(uint32_t), xent_compare_swiftstack_order_asc,
+	  ( void * ) buffers->children
+	);
+#else
+	qsort_r(
+	  buffers->priority_order, ( size_t ) count, sizeof(uint32_t), xent_compare_swiftstack_order_asc,
+	  ( void * ) buffers->children
+	);
+#endif
 	ctx->profile.swiftstack_sort_ms += (xent_now_ms() - sort_start_ms);
 }
 
@@ -390,7 +408,9 @@ static void stack_reduce_priority_group(
 ) {
 	float reduce_flexible = group_reduce < group.flexible_total ? group_reduce : group.flexible_total;
 	stack_reduce_members(ctx, buffers, (StackReduceRequest) {group, reduce_flexible, group.flexible_total, false});
-	stack_reduce_members(ctx, buffers, (StackReduceRequest) {group, group_reduce - reduce_flexible, group.fixed_total, true});
+	stack_reduce_members(
+	  ctx, buffers, (StackReduceRequest) {group, group_reduce - reduce_flexible, group.fixed_total, true}
+	);
 }
 
 static void
@@ -474,7 +494,7 @@ static StackChildRect stack_horizontal_child_rect(StackChildRectRequest const *r
 	StackLayoutFrame const *frame    = request->frame;
 	StackChildData const   *child    = request->child;
 	StackBaselineInfo       baseline = request->baseline;
-	StackChildRect rect = {
+	StackChildRect          rect     = {
 	  request->cursor,
 	  frame->content_y + child->margin_cross_lead,
 	  request->child_main,
@@ -500,7 +520,8 @@ static StackChildRect stack_vertical_child_rect(StackChildRectRequest const *req
 }
 
 static StackChildRect stack_child_rect(StackChildRectRequest const *request) {
-	StackChildRect rect = request->frame->horizontal ? stack_horizontal_child_rect(request) : stack_vertical_child_rect(request);
+	StackChildRect rect
+	  = request->frame->horizontal ? stack_horizontal_child_rect(request) : stack_vertical_child_rect(request);
 
 	if (rect.w < 0.0f) rect.w = 0.0f;
 	if (rect.h < 0.0f) rect.h = 0.0f;
@@ -527,12 +548,12 @@ stack_layout_children(XentContext *ctx, StackLayoutFrame const *frame, StackBuff
 }
 
 void xent_layout_node_swiftstack(XentLayoutRequest const *request) {
-	XentContext *ctx              = request->ctx;
-	XentNodeId   node             = request->node;
-	double swiftstack_start_ms   = xent_now_ms();
-	ctx->swiftstack_scope_depth += 1u;
+	XentContext *ctx                  = request->ctx;
+	XentNodeId   node                 = request->node;
+	double       swiftstack_start_ms  = xent_now_ms();
+	ctx->swiftstack_scope_depth      += 1u;
 
-	StackLayoutFrame frame       = {0};
+	StackLayoutFrame frame            = {0};
 	stack_begin_layout(request, &frame);
 
 	uint32_t child_count = ctx->nodes.topology.child_count [node];

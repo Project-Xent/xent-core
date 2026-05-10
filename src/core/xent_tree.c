@@ -166,48 +166,43 @@ static void xent_destroy_single_node(XentContext *ctx, XentNodeId node) {
 	( void ) xent_push_free_id(ctx, node);
 }
 
-typedef struct DestroyFrame {
-	XentNodeId node;
-	bool       expanded;
-} DestroyFrame;
-
-static bool destroy_stack_push(DestroyFrame **stack, uint32_t *top, uint32_t *capacity, DestroyFrame frame) {
-	if (*top == *capacity) {
-		uint32_t      new_cap = *capacity ? *capacity * 2u : 64u;
-		DestroyFrame *new_mem = ( DestroyFrame * ) realloc(*stack, sizeof(*new_mem) * ( size_t ) new_cap);
-		if (!new_mem) return false;
-		*stack    = new_mem;
-		*capacity = new_cap;
-	}
-	(*stack) [(*top)++] = frame;
-	return true;
-}
-
 static void xent_destroy_subtree(XentContext *ctx, XentNodeId root) {
-	DestroyFrame *stack    = NULL;
-	uint32_t      top      = 0u;
-	uint32_t      capacity = 0u;
-	if (!destroy_stack_push(&stack, &top, &capacity, (DestroyFrame) {root, false})) return;
+	uint32_t capacity = ctx->nodes.count + 1u;
+	if (capacity == 0u) {
+		xent_destroy_single_node(ctx, root);
+		return;
+	}
+
+	XentNodeId *stack = ( XentNodeId * ) malloc(sizeof(*stack) * ( size_t ) capacity);
+	XentNodeId *list  = ( XentNodeId * ) malloc(sizeof(*list) * ( size_t ) capacity);
+	if (!stack || !list) {
+		free(stack);
+		free(list);
+		xent_destroy_single_node(ctx, root);
+		return;
+	}
+
+	uint32_t top        = 0u;
+	uint32_t list_count = 0u;
+	stack [top++]       = root;
 
 	while (top > 0u) {
-		DestroyFrame frame = stack [--top];
-		if (frame.expanded) {
-			xent_destroy_single_node(ctx, frame.node);
-			continue;
-		}
+		XentNodeId node = stack [--top];
+		if (!xent_is_valid_node(ctx, node)) continue;
+		if (list_count >= capacity) break;
+		list [list_count++] = node;
 
-		if (!destroy_stack_push(&stack, &top, &capacity, (DestroyFrame) {frame.node, true})) break;
-		for (XentNodeId child = ctx->nodes.topology.last_child [frame.node]; child != XENT_NODE_INVALID;
-		  child               = ctx->nodes.topology.prev_sibling [child])
+		for (XentNodeId child = ctx->nodes.topology.first_child [node]; child != XENT_NODE_INVALID;
+		  child               = ctx->nodes.topology.next_sibling [child])
 		{
-			if (!destroy_stack_push(&stack, &top, &capacity, (DestroyFrame) {child, false})) {
-				free(stack);
-				return;
-			}
+			if (top >= capacity) break;
+			stack [top++] = child;
 		}
 	}
 
+	while (list_count > 0u) xent_destroy_single_node(ctx, list [--list_count]);
 	free(stack);
+	free(list);
 }
 
 bool xent_destroy_node(XentContext *ctx, XentNodeId node) {

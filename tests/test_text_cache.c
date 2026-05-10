@@ -1,6 +1,6 @@
 #include "test_common.h"
 
-int main(void) {
+static int test_basic_hit_miss(void) {
 	XentContext *ctx = xent_create_context(NULL);
 	TEST_ASSERT(ctx != NULL);
 
@@ -23,16 +23,85 @@ int main(void) {
 	XentTextCacheStats after_mode_change = xent_get_text_cache_stats(ctx);
 	TEST_ASSERT(after_mode_change.misses > stats.misses);
 
-	request.width_mode = XENT_MEASURE_AT_MOST;
-	request.font_size  = 14.0f;
+	xent_destroy_context(ctx);
+	return 0;
+}
+
+static int test_mono_font_size_key_normalized(void) {
+	XentContext *ctx = xent_create_context(NULL);
+	TEST_ASSERT(ctx != NULL);
+
+	XentTextMetrics        m1 = {0};
+	XentTextMetrics        m2 = {0};
+	XentTextMeasureRequest request
+	  = {"same mono width", 14.0f, 300.0f, XENT_LINE_BREAK_CHAR_WRAP, XENT_MEASURE_AT_MOST};
+
 	TEST_ASSERT(xent_measure_text(ctx, &request, &m1));
 	XentTextCacheStats before_font_change = xent_get_text_cache_stats(ctx);
 	request.font_size                     = 28.0f;
 	TEST_ASSERT(xent_measure_text(ctx, &request, &m2));
 	XentTextCacheStats after_font_change = xent_get_text_cache_stats(ctx);
+
 	TEST_ASSERT(test_float_near(m1.width, m2.width, 0.001f));
 	TEST_ASSERT(after_font_change.hits > before_font_change.hits);
 
 	xent_destroy_context(ctx);
 	return 0;
+}
+
+static int test_many_unique_keys(void) {
+	XentContext *ctx = xent_create_context(NULL);
+	TEST_ASSERT(ctx != NULL);
+
+	char buf [64];
+	for (uint32_t i = 0u; i < 1024u; ++i) {
+		snprintf(buf, sizeof(buf), "cache-key-%u", i);
+		XentTextMetrics        metrics = {0};
+		XentTextMeasureRequest request = {buf, 14.0f, 300.0f, XENT_LINE_BREAK_CHAR_WRAP, XENT_MEASURE_AT_MOST};
+		TEST_ASSERT(xent_measure_text(ctx, &request, &metrics));
+	}
+
+	XentTextCacheStats stats = xent_get_text_cache_stats(ctx);
+	TEST_ASSERT(stats.inserts == 1024u);
+	TEST_ASSERT(stats.evictions == 0u);
+
+	snprintf(buf, sizeof(buf), "cache-key-%u", 777u);
+	XentTextMetrics        metrics = {0};
+	XentTextMeasureRequest request = {buf, 14.0f, 300.0f, XENT_LINE_BREAK_CHAR_WRAP, XENT_MEASURE_AT_MOST};
+	TEST_ASSERT(xent_measure_text(ctx, &request, &metrics));
+	XentTextCacheStats after_hit = xent_get_text_cache_stats(ctx);
+	TEST_ASSERT(after_hit.hits > stats.hits);
+
+	xent_destroy_context(ctx);
+	return 0;
+}
+
+static int test_eviction_on_overflow(void) {
+	XentContext *ctx = xent_create_context(NULL);
+	TEST_ASSERT(ctx != NULL);
+
+	char buf [64];
+	for (uint32_t i = 0u; i < 5000u; ++i) {
+		snprintf(buf, sizeof(buf), "overflow-key-%u", i);
+		XentTextMetrics        metrics = {0};
+		XentTextMeasureRequest request = {buf, 14.0f, 300.0f, XENT_LINE_BREAK_CHAR_WRAP, XENT_MEASURE_AT_MOST};
+		TEST_ASSERT(xent_measure_text(ctx, &request, &metrics));
+	}
+
+	XentTextCacheStats stats = xent_get_text_cache_stats(ctx);
+	TEST_ASSERT(stats.inserts == 5000u);
+	TEST_ASSERT(stats.evictions > 0u);
+
+	xent_destroy_context(ctx);
+	return 0;
+}
+
+int main(void) {
+	XentTestFn tests [] = {
+	  test_basic_hit_miss,
+	  test_mono_font_size_key_normalized,
+	  test_many_unique_keys,
+	  test_eviction_on_overflow,
+	};
+	return test_run_all(tests, sizeof(tests) / sizeof(tests [0]));
 }

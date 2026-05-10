@@ -19,24 +19,88 @@ void xent_quantize_node_layout(XentContext *ctx, XentNodeId node) {
 	ctx->nodes.layout.decided_h [node] = xent_round_to_pixel_grid(ctx, ctx->nodes.layout.decided_h [node]);
 }
 
+#if XENT_ISPC_ENABLED
+static void xent_batch_quantize_contiguous(XentContext *ctx, uint32_t count, float scale) {
+	xent_ispc_quantize_f32(ctx->nodes.layout.abs_x + 1, count, scale);
+	xent_ispc_quantize_f32(ctx->nodes.layout.abs_y + 1, count, scale);
+	xent_ispc_quantize_f32(ctx->nodes.layout.decided_w + 1, count, scale);
+	xent_ispc_quantize_f32(ctx->nodes.layout.decided_h + 1, count, scale);
+}
+
+typedef struct XentQuantizeBuffers {
+	float *x;
+	float *y;
+	float *w;
+	float *h;
+} XentQuantizeBuffers;
+
+static XentQuantizeBuffers xent_alloc_quantize_buffers(XentContext *ctx, uint32_t count) {
+	size_t bytes = sizeof(float) * ( size_t ) count;
+	return (XentQuantizeBuffers) {
+	  ( float * ) xent_scratch_alloc(ctx, bytes, _Alignof(float)),
+	  ( float * ) xent_scratch_alloc(ctx, bytes, _Alignof(float)),
+	  ( float * ) xent_scratch_alloc(ctx, bytes, _Alignof(float)),
+	  ( float * ) xent_scratch_alloc(ctx, bytes, _Alignof(float)),
+	};
+}
+
+static bool xent_quantize_buffers_valid(XentQuantizeBuffers buffers) {
+	return buffers.x && buffers.y && buffers.w && buffers.h;
+}
+
+static void xent_gather_quantize_buffers(XentContext const *ctx, XentQuantizeBuffers buffers, uint32_t count) {
+	for (uint32_t i = 0u; i < count; ++i) {
+		XentNodeId n  = ctx->work_order [i];
+		buffers.x [i] = ctx->nodes.layout.abs_x [n];
+		buffers.y [i] = ctx->nodes.layout.abs_y [n];
+		buffers.w [i] = ctx->nodes.layout.decided_w [n];
+		buffers.h [i] = ctx->nodes.layout.decided_h [n];
+	}
+}
+
+static void xent_scatter_quantize_buffers(XentContext *ctx, XentQuantizeBuffers buffers, uint32_t count) {
+	for (uint32_t i = 0u; i < count; ++i) {
+		XentNodeId n                    = ctx->work_order [i];
+		ctx->nodes.layout.abs_x [n]     = buffers.x [i];
+		ctx->nodes.layout.abs_y [n]     = buffers.y [i];
+		ctx->nodes.layout.decided_w [n] = buffers.w [i];
+		ctx->nodes.layout.decided_h [n] = buffers.h [i];
+	}
+}
+
+static bool xent_batch_quantize_sparse_ispc(XentContext *ctx, uint32_t count, float scale) {
+	XentQuantizeBuffers buffers = xent_alloc_quantize_buffers(ctx, count);
+	if (!xent_quantize_buffers_valid(buffers)) return false;
+	xent_gather_quantize_buffers(ctx, buffers, count);
+	xent_ispc_quantize_f32(buffers.x, count, scale);
+	xent_ispc_quantize_f32(buffers.y, count, scale);
+	xent_ispc_quantize_f32(buffers.w, count, scale);
+	xent_ispc_quantize_f32(buffers.h, count, scale);
+	xent_scatter_quantize_buffers(ctx, buffers, count);
+	return true;
+}
+#endif
+
+static void xent_batch_quantize_scalar(XentContext *ctx, uint32_t count) {
+	for (uint32_t i = 0u; i < count; ++i) {
+		XentNodeId n = ctx->work_order [i];
+		if (xent_is_valid_node(ctx, n)) xent_quantize_node_layout(ctx, n);
+	}
+}
+
 void xent_batch_quantize_layout(XentContext *ctx) {
 	if (!ctx || !ctx->config.enable_pixel_rounding) return;
 	float scale = ctx->config.point_scale_factor;
 	if (!(scale > 0.0f) || !isfinite(scale)) return;
-#if XENT_ISPC_ENABLED
 	uint32_t count = ctx->work_count;
-	if (count >= 64u) {
-		xent_ispc_quantize_f32(ctx->nodes.layout.abs_x + 1, ctx->nodes.count, scale);
-		xent_ispc_quantize_f32(ctx->nodes.layout.abs_y + 1, ctx->nodes.count, scale);
-		xent_ispc_quantize_f32(ctx->nodes.layout.decided_w + 1, ctx->nodes.count, scale);
-		xent_ispc_quantize_f32(ctx->nodes.layout.decided_h + 1, ctx->nodes.count, scale);
+#if XENT_ISPC_ENABLED
+	if (count >= 64u && count == ctx->nodes.count) {
+		xent_batch_quantize_contiguous(ctx, count, scale);
 		return;
 	}
+	if (count >= 64u && xent_batch_quantize_sparse_ispc(ctx, count, scale)) return;
 #endif
-	for (uint32_t i = 0; i < ctx->work_count; ++i) {
-		XentNodeId n = ctx->work_order [i];
-		if (xent_is_valid_node(ctx, n)) xent_quantize_node_layout(ctx, n);
-	}
+	xent_batch_quantize_scalar(ctx, count);
 }
 
 static void xent_invalidate_all_layout(XentContext *ctx) {

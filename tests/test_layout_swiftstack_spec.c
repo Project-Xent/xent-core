@@ -1,19 +1,19 @@
 #include "test_common.h"
 
-#define SCHK_X 1u
-#define SCHK_Y 2u
-#define SCHK_W 4u
-#define SCHK_H 8u
+#define SCHK_X             1u
+#define SCHK_Y             2u
+#define SCHK_W             4u
+#define SCHK_H             8u
 
-#define SREL_NONE             0
-#define SREL_SECOND_WIDER     1
-#define SREL_EQUAL_WIDTH      2
-#define SREL_FIXED_VS_FLEX    3
-#define SREL_FIRST_BELOW      4
-#define SREL_BASELINE_LAST    5
-#define SREL_SPACER_X         6
+#define SREL_NONE          0
+#define SREL_SECOND_WIDER  1
+#define SREL_EQUAL_WIDTH   2
+#define SREL_FIXED_VS_FLEX 3
+#define SREL_FIRST_BELOW   4
+#define SREL_BASELINE_LAST 5
+#define SREL_SPACER_X      6
 
-#define SWIFT_MAX_CHILD 4
+#define SWIFT_MAX_CHILD    4
 
 typedef struct StackChildCase {
 	XentSize    size;
@@ -38,7 +38,17 @@ typedef struct StackCase {
 	float          eps;
 } StackCase;
 
+typedef struct StackPairRects {
+	XentRect first;
+	XentRect second;
+} StackPairRects;
+
+typedef int (*StackRelationCheckFn)(
+  StackPairRects const *rects, XentContext *ctx, XentNodeId const *nodes, uint32_t count, float eps
+);
+
 static int stack_finite_size(XentSize s) { return isfinite(s.width) || isfinite(s.height); }
+
 static int stack_finite_inset(XentInsets i) {
 	return isfinite(i.top) || isfinite(i.right) || isfinite(i.bottom) || isfinite(i.left);
 }
@@ -73,37 +83,89 @@ static int stack_check_rect(XentContext *ctx, XentNodeId node, StackChildCase co
 	return 0;
 }
 
+static int stack_relation_second_wider(
+  StackPairRects const *rects, XentContext *ctx, XentNodeId const *nodes, uint32_t count, float eps
+) {
+	( void ) ctx;
+	( void ) nodes;
+	( void ) count;
+	( void ) eps;
+	return rects->second.width > rects->first.width ? 0 : 1;
+}
+
+static int stack_relation_equal_width(
+  StackPairRects const *rects, XentContext *ctx, XentNodeId const *nodes, uint32_t count, float eps
+) {
+	( void ) ctx;
+	( void ) nodes;
+	( void ) count;
+	return test_float_near(rects->first.width, rects->second.width, eps) ? 0 : 1;
+}
+
+static int stack_relation_fixed_vs_flex(
+  StackPairRects const *rects, XentContext *ctx, XentNodeId const *nodes, uint32_t count, float eps
+) {
+	( void ) ctx;
+	( void ) nodes;
+	( void ) count;
+	( void ) eps;
+	return rects->first.width >= 85.0f && rects->second.width <= 40.0f && rects->first.width > rects->second.width ? 0
+	                                                                                                               : 1;
+}
+
+static int stack_relation_first_below(
+  StackPairRects const *rects, XentContext *ctx, XentNodeId const *nodes, uint32_t count, float eps
+) {
+	( void ) ctx;
+	( void ) nodes;
+	( void ) count;
+	( void ) eps;
+	return rects->first.y > rects->second.y ? 0 : 1;
+}
+
+static int stack_relation_baseline_last(
+  StackPairRects const *rects, XentContext *ctx, XentNodeId const *nodes, uint32_t count, float eps
+) {
+	( void ) ctx;
+	( void ) nodes;
+	( void ) count;
+	return test_float_near(rects->first.y + rects->first.height, rects->second.y + rects->second.height, eps) ? 0 : 1;
+}
+
+static int stack_relation_spacer_x(
+  StackPairRects const *rects, XentContext *ctx, XentNodeId const *nodes, uint32_t count, float eps
+) {
+	( void ) eps;
+	if (count < 3) return 0;
+	XentRect spacer_end = {0};
+	TEST_ASSERT(xent_get_layout_rect(ctx, nodes [2], &spacer_end));
+	return rects->second.width > 120.0f && spacer_end.x > rects->second.x ? 0 : 1;
+}
+
 static int stack_check_relative(XentContext *ctx, XentNodeId const *nodes, uint32_t count, int kind, float eps) {
-	if (kind == SREL_NONE) return 0;
-	if (count < 2) return 0;
-	XentRect r0 = {0};
-	XentRect r1 = {0};
-	TEST_ASSERT(xent_get_layout_rect(ctx, nodes [0], &r0));
-	TEST_ASSERT(xent_get_layout_rect(ctx, nodes [1], &r1));
-	if (kind == SREL_SECOND_WIDER) TEST_ASSERT(r1.width > r0.width);
-	if (kind == SREL_EQUAL_WIDTH) TEST_ASSERT(test_float_near(r0.width, r1.width, eps));
-	if (kind == SREL_FIXED_VS_FLEX) {
-		TEST_ASSERT(r0.width >= 85.0f);
-		TEST_ASSERT(r1.width <= 40.0f);
-		TEST_ASSERT(r0.width > r1.width);
-	}
-	if (kind == SREL_FIRST_BELOW) TEST_ASSERT(r0.y > r1.y);
-	if (kind == SREL_BASELINE_LAST) TEST_ASSERT(test_float_near(r0.y + r0.height, r1.y + r1.height, eps));
-	if (kind == SREL_SPACER_X && count >= 3) {
-		XentRect r2 = {0};
-		TEST_ASSERT(xent_get_layout_rect(ctx, nodes [2], &r2));
-		TEST_ASSERT(r1.width > 120.0f);
-		TEST_ASSERT(r2.x > r1.x);
-	}
-	return 0;
+	static StackRelationCheckFn const checks [] = {
+	  NULL,
+	  stack_relation_second_wider,
+	  stack_relation_equal_width,
+	  stack_relation_fixed_vs_flex,
+	  stack_relation_first_below,
+	  stack_relation_baseline_last,
+	  stack_relation_spacer_x,
+	};
+	if (kind <= SREL_NONE || ( size_t ) kind >= sizeof(checks) / sizeof(checks [0]) || count < 2) return 0;
+
+	StackPairRects rects = {0};
+	TEST_ASSERT(xent_get_layout_rect(ctx, nodes [0], &rects.first));
+	TEST_ASSERT(xent_get_layout_rect(ctx, nodes [1], &rects.second));
+	return checks [kind](&rects, ctx, nodes, count, eps);
 }
 
 static int run_stack_case(StackCase const *spec) {
 	XentContext *ctx = xent_create_context(NULL);
 	TEST_ASSERT(ctx != NULL);
 
-	XentNodeId root                     = stack_make_root(ctx, spec);
-	XentNodeId nodes [SWIFT_MAX_CHILD]  = {XENT_NODE_INVALID};
+	XentNodeId root                    = stack_make_root(ctx, spec);
+	XentNodeId nodes [SWIFT_MAX_CHILD] = {XENT_NODE_INVALID};
 	for (uint32_t i = 0; i < spec->child_count; ++i) nodes [i] = stack_make_child(ctx, root, &spec->children [i]);
 
 	TEST_ASSERT(xent_layout(ctx, root, spec->root_size.width, spec->root_size.height));
@@ -225,15 +287,14 @@ static int test_stack_table_cases(void) {
 	    },
 	};
 
-	for (size_t i = 0; i < sizeof(cases) / sizeof(cases [0]); ++i)
-		TEST_ASSERT(run_stack_case(&cases [i]) == 0);
+	for (size_t i = 0; i < sizeof(cases) / sizeof(cases [0]); ++i) TEST_ASSERT(run_stack_case(&cases [i]) == 0);
 
 	return 0;
 }
 
 int main(void) {
-	XentTestFn const tests[] = {
-	    test_stack_table_cases,
+	XentTestFn const tests [] = {
+	  test_stack_table_cases,
 	};
 
 	return test_run_all(tests, sizeof(tests) / sizeof(tests [0]));

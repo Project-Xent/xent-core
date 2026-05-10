@@ -53,23 +53,23 @@ static XentRect xent_root_clip(void) {
 	return (XentRect) {-extent, -extent, extent * 2.0f, extent * 2.0f};
 }
 
+static bool xent_child_order_is_z(XentChildOrder order) {
+	return order == XENT_CHILD_ORDER_Z_ASC || order == XENT_CHILD_ORDER_Z_DESC;
+}
+
+static bool xent_z_is_before(XentContext const *ctx, XentNodeId a, XentNodeId b, XentChildOrder order) {
+	int32_t za = ctx->nodes.layout.z_index [a];
+	int32_t zb = ctx->nodes.layout.z_index [b];
+	return order == XENT_CHILD_ORDER_Z_ASC ? za < zb : za > zb;
+}
+
 static XentNodeId xent_first_child_for_order(XentContext const *ctx, XentNodeId node, XentChildOrder order) {
-	if (order == XENT_CHILD_ORDER_Z_ASC || order == XENT_CHILD_ORDER_Z_DESC) {
+	if (xent_child_order_is_z(order)) {
 		XentNodeId best = XENT_NODE_INVALID;
 		for (XentNodeId child = xent_get_first_child(ctx, node); child != XENT_NODE_INVALID;
 		  child               = xent_get_next_sibling(ctx, child))
 		{
-			if (best == XENT_NODE_INVALID) {
-				best = child;
-				continue;
-			}
-			int32_t z_child = ctx->nodes.layout.z_index [child];
-			int32_t z_best  = ctx->nodes.layout.z_index [best];
-			if ((order == XENT_CHILD_ORDER_Z_ASC && z_child < z_best)
-				|| (order == XENT_CHILD_ORDER_Z_DESC && z_child > z_best))
-			{
-				best = child;
-			}
+			if (best == XENT_NODE_INVALID || xent_z_is_before(ctx, child, best, order)) best = child;
 		}
 		return best;
 	}
@@ -77,42 +77,36 @@ static XentNodeId xent_first_child_for_order(XentContext const *ctx, XentNodeId 
 	return xent_get_first_child(ctx, node);
 }
 
-static XentNodeId xent_next_child_for_order(XentContext const *ctx, XentNodeId node, XentChildOrder order) {
-	if (order == XENT_CHILD_ORDER_Z_ASC || order == XENT_CHILD_ORDER_Z_DESC) {
-		XentNodeId parent = xent_get_parent(ctx, node);
-		if (parent == XENT_NODE_INVALID) return XENT_NODE_INVALID;
+static bool xent_z_candidate_after(
+  XentContext const *ctx, XentNodeId node, XentNodeId child, bool after_node, XentChildOrder order
+) {
+	int32_t node_z  = ctx->nodes.layout.z_index [node];
+	int32_t child_z = ctx->nodes.layout.z_index [child];
+	if (order == XENT_CHILD_ORDER_Z_ASC) return child_z > node_z || (child_z == node_z && after_node);
+	return child_z < node_z || (child_z == node_z && after_node);
+}
 
-		XentNodeId best       = XENT_NODE_INVALID;
-		int32_t    node_z     = ctx->nodes.layout.z_index [node];
-		bool       after_node = false;
-		for (XentNodeId child = xent_get_first_child(ctx, parent); child != XENT_NODE_INVALID;
-		  child               = xent_get_next_sibling(ctx, child))
-		{
-			if (child == node) {
-				after_node = true;
-				continue;
-			}
+static XentNodeId xent_next_z_child_for_order(XentContext const *ctx, XentNodeId node, XentChildOrder order) {
+	XentNodeId parent = xent_get_parent(ctx, node);
+	if (parent == XENT_NODE_INVALID) return XENT_NODE_INVALID;
 
-			int32_t child_z   = ctx->nodes.layout.z_index [child];
-			bool    candidate = false;
-			if (order == XENT_CHILD_ORDER_Z_ASC) candidate = child_z > node_z || (child_z == node_z && after_node);
-			else candidate = child_z < node_z || (child_z == node_z && after_node);
-			if (!candidate) continue;
-
-			if (best == XENT_NODE_INVALID) {
-				best = child;
-				continue;
-			}
-
-			int32_t best_z = ctx->nodes.layout.z_index [best];
-			if ((order == XENT_CHILD_ORDER_Z_ASC && child_z < best_z)
-				|| (order == XENT_CHILD_ORDER_Z_DESC && child_z > best_z))
-			{
-				best = child;
-			}
+	XentNodeId best       = XENT_NODE_INVALID;
+	bool       after_node = false;
+	for (XentNodeId child = xent_get_first_child(ctx, parent); child != XENT_NODE_INVALID;
+	  child               = xent_get_next_sibling(ctx, child))
+	{
+		if (child == node) {
+			after_node = true;
+			continue;
 		}
-		return best;
+		if (!xent_z_candidate_after(ctx, node, child, after_node, order)) continue;
+		if (best == XENT_NODE_INVALID || xent_z_is_before(ctx, child, best, order)) best = child;
 	}
+	return best;
+}
+
+static XentNodeId xent_next_child_for_order(XentContext const *ctx, XentNodeId node, XentChildOrder order) {
+	if (xent_child_order_is_z(order)) return xent_next_z_child_for_order(ctx, node, order);
 	if (order == XENT_CHILD_ORDER_REVERSE) return xent_get_prev_sibling(ctx, node);
 	return xent_get_next_sibling(ctx, node);
 }

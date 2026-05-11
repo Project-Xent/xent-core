@@ -107,12 +107,6 @@ static bool xent_same_priority(float a, float b) {
 	return fabsf(a - b) <= eps;
 }
 
-static float xent_swiftstack_estimate_baseline(XentContext const *ctx, XentNodeId node, float cross_size) {
-	if (cross_size <= 0.0f) return 0.0f;
-	if (ctx->nodes.text.content [node] && ctx->nodes.text.content [node][0] != '\0') return cross_size * 0.8f;
-	return cross_size;
-}
-
 static void stack_begin_layout(XentLayoutRequest const *request, StackLayoutFrame *frame) {
 	XentContext *ctx         = request->ctx;
 	XentNodeId   node        = request->node;
@@ -464,7 +458,7 @@ static float stack_baseline_target(
 		StackChildData const *child = &buffers->children [i];
 		if (child->spacer) continue;
 		float cross_size = child->preferred_cross > 0.0f ? child->preferred_cross : stack_fallback_cross(frame, child);
-		float baseline   = xent_swiftstack_estimate_baseline(ctx, child->node_id, cross_size);
+		float baseline   = xent_estimate_text_baseline(ctx, child->node_id, cross_size);
 		float candidate  = child->margin_cross_lead + baseline;
 		if (!has_target || candidate > target) target = candidate;
 		has_target = true;
@@ -483,7 +477,7 @@ static float stack_baseline_cross_offset(
 ) {
 	float cross_free = frame->available_cross - child_h - child->margin_cross_lead - child->margin_cross_trail;
 	if (cross_free < 0.0f) cross_free = 0.0f;
-	float baseline   = xent_swiftstack_estimate_baseline(ctx, child->node_id, child_h);
+	float baseline   = xent_estimate_text_baseline(ctx, child->node_id, child_h);
 	float desired    = baseline_target - baseline;
 	float min_offset = child->margin_cross_lead;
 	float max_offset = child->margin_cross_lead + cross_free;
@@ -548,12 +542,13 @@ stack_layout_children(XentContext *ctx, StackLayoutFrame const *frame, StackBuff
 }
 
 void xent_layout_node_swiftstack(XentLayoutRequest const *request) {
-	XentContext *ctx                  = request->ctx;
-	XentNodeId   node                 = request->node;
-	double       swiftstack_start_ms  = xent_now_ms();
-	ctx->swiftstack_scope_depth      += 1u;
+	XentContext *ctx                      = request->ctx;
+	XentNodeId   node                     = request->node;
+	double       swiftstack_start_ms      = xent_now_ms();
+	ctx->profile.swiftstack_layout_calls += 1u;
+	ctx->swiftstack_scope_depth          += 1u;
 
-	StackLayoutFrame frame            = {0};
+	StackLayoutFrame frame                = {0};
 	stack_begin_layout(request, &frame);
 
 	uint32_t child_count = ctx->nodes.topology.child_count [node];

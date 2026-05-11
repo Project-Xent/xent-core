@@ -249,6 +249,8 @@ struct XentContext {
 	size_t                 scratch_capacity;
 
 	uint32_t               swiftstack_scope_depth;
+	uint32_t               flex_scope_depth;
+	uint32_t               grid_scope_depth;
 	XentProfileStats       profile;
 	XentNodeLifecycleFn    node_lifecycle;
 	void                  *node_lifecycle_userdata;
@@ -294,6 +296,7 @@ void   xent_sort_by_priority(XentContext const *ctx, XentNodeId *ids, uint32_t c
 double xent_now_ms(void);
 void   xent_scratch_reset(XentContext *ctx);
 void  *xent_scratch_alloc(XentContext *ctx, size_t bytes, size_t alignment);
+float  xent_estimate_text_baseline(XentContext *ctx, XentNodeId node, float cross_size);
 float  xent_simd_sum_f32(float const *values, uint32_t count);
 void   xent_simd_fill_f32(float *values, uint32_t count, float value);
 void   xent_batch_quantize_layout(XentContext *ctx);

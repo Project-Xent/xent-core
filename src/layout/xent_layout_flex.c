@@ -66,7 +66,7 @@ typedef struct FlexLayoutChildrenRequest {
 } FlexLayoutChildrenRequest;
 
 typedef struct FlexLinePrepareContext {
-	XentContext const     *ctx;
+	XentContext           *ctx;
 	FlexLayoutFrame const *frame;
 	FlexLineData const    *line;
 	FlexLinePlacement     *placement;
@@ -206,12 +206,6 @@ static float xent_clampf(float value, float min_v, float max_v) {
 	if (value < min_v) return min_v;
 	if (value > max_v) return max_v;
 	return value;
-}
-
-static float xent_estimate_baseline(XentContext const *ctx, XentNodeId node, float cross_size) {
-	if (cross_size <= 0.0f) return 0.0f;
-	if (ctx->nodes.text.content [node] && ctx->nodes.text.content [node][0] != '\0') return cross_size * 0.8f;
-	return cross_size;
 }
 
 static void flex_begin_layout(XentLayoutRequest const *request, FlexLayoutFrame *frame) {
@@ -598,7 +592,7 @@ static void flex_prepare_child(FlexLinePrepareContext const *prepare) {
 	float         cross_size          = flex_resolved_cross_size(prepare, align);
 	prepare->entry->resolved_align    = ( uint8_t ) align;
 	prepare->entry->final_cross       = cross_size;
-	prepare->entry->baseline_from_top = xent_estimate_baseline(prepare->ctx, prepare->entry->id, cross_size);
+	prepare->entry->baseline_from_top = xent_estimate_text_baseline(prepare->ctx, prepare->entry->id, cross_size);
 	flex_note_baseline(prepare, align);
 }
 
@@ -710,25 +704,36 @@ static void flex_layout_lines(
 }
 
 void xent_layout_node_flex(XentLayoutRequest const *request) {
-	XentContext    *ctx   = request->ctx;
-	XentNodeId      node  = request->node;
-	FlexLayoutFrame frame = {0};
+	XentContext *ctx                = request->ctx;
+	XentNodeId   node               = request->node;
+	double       start              = xent_now_ms();
+	ctx->profile.flex_layout_calls += 1u;
+	ctx->flex_scope_depth          += 1u;
+	FlexLayoutFrame frame           = {0};
 	flex_begin_layout(request, &frame);
 
 	uint32_t child_capacity = ctx->nodes.topology.child_count [node];
-	if (child_capacity == 0u) return;
+	if (child_capacity == 0u) goto finish;
 
 	FlexChildData *children = NULL;
 	FlexLineData  *lines    = NULL;
-	if (!flex_alloc_buffers(child_capacity, &children, &lines)) return;
+	if (!flex_alloc_buffers(child_capacity, &children, &lines)) goto finish;
 
-	uint32_t child_count = flex_collect_children(ctx, &frame, children, child_capacity);
+	double   collect_start        = xent_now_ms();
+	uint32_t child_count          = flex_collect_children(ctx, &frame, children, child_capacity);
+	ctx->profile.flex_collect_ms += (xent_now_ms() - collect_start);
 	if (child_count > 0u) {
+		double   line_start = xent_now_ms();
 		uint32_t line_count = flex_build_lines(&frame, children, child_count, lines);
 		flex_compute_line_set(&frame, children, lines, line_count);
 		flex_layout_lines(ctx, &frame, children, lines, line_count);
+		ctx->profile.flex_line_ms += (xent_now_ms() - line_start);
 	}
 
 	free(children);
 	free(lines);
+
+finish:
+	ctx->flex_scope_depth      -= 1u;
+	ctx->profile.flex_total_ms += (xent_now_ms() - start);
 }

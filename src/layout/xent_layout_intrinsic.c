@@ -14,6 +14,16 @@ static float xent_clampf(float value, float min_v, float max_v) {
 	return value;
 }
 
+float xent_estimate_text_baseline(XentContext *ctx, XentNodeId node, float cross_size) {
+	if (cross_size <= 0.0f) return 0.0f;
+	if (ctx->nodes.text.content [node] && ctx->nodes.text.content [node][0] != '\0') {
+		/* Mono fallback until text backends expose real ascender/baseline metrics. */
+		ctx->profile.text_baseline_fallbacks += 1u;
+		return cross_size * 0.8f;
+	}
+	return cross_size;
+}
+
 static XentMeasureMode xent_resolve_intrinsic_width_mode(float width, float *text_constraint) {
 	if (!isnan(width)) return XENT_MEASURE_EXACTLY;
 	if (isfinite(*text_constraint) && *text_constraint > 0.0f) return XENT_MEASURE_AT_MOST;

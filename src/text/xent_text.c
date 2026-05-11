@@ -55,15 +55,16 @@ static bool xent_is_valid_text_measure_request(
 	return xent_is_valid_width_constraint(request->width_mode, request->width_constraint);
 }
 
-static double xent_begin_swiftstack_measure_profile(XentContext *ctx, bool track_swiftstack) {
-	if (!track_swiftstack) return 0.0;
-
+static double xent_begin_text_measure_profile(XentContext *ctx) {
 	ctx->profile.text_measure_calls += 1u;
 	return xent_now_ms();
 }
 
-static void xent_end_swiftstack_measure_profile(XentContext *ctx, bool track_swiftstack, double measure_start_ms) {
-	if (track_swiftstack) ctx->profile.swiftstack_text_ms += (xent_now_ms() - measure_start_ms);
+static void xent_end_text_measure_profile(XentContext *ctx, double measure_start_ms) {
+	double elapsed_ms = xent_now_ms() - measure_start_ms;
+	if (ctx->swiftstack_scope_depth > 0u) ctx->profile.swiftstack_text_ms += elapsed_ms;
+	if (ctx->flex_scope_depth > 0u) ctx->profile.flex_text_ms += elapsed_ms;
+	if (ctx->grid_scope_depth > 0u) ctx->profile.grid_text_ms += elapsed_ms;
 }
 
 bool xent_set_text(XentContext *ctx, XentNodeId node, char const *text) {
@@ -137,23 +138,22 @@ XentTextBackend const *xent_get_text_backend(XentContext const *ctx) {
 bool xent_measure_text(XentContext *ctx, XentTextMeasureRequest const *request, XentTextMetrics *out_metrics) {
 	if (!xent_is_valid_text_measure_request(ctx, request, out_metrics)) return false;
 
-	bool             track_swiftstack = ctx->swiftstack_scope_depth > 0u;
-	double           measure_start_ms = xent_begin_swiftstack_measure_profile(ctx, track_swiftstack);
+	double           measure_start_ms = xent_begin_text_measure_profile(ctx);
 
 	XentTextCacheKey cache_key        = xent_text_cache_key_from_measure_request(request);
 	xent_normalize_text_cache_key_for_backend(ctx, &cache_key);
 	if (xent_text_cache_lookup(&ctx->text_cache, &cache_key, out_metrics)) {
-		xent_end_swiftstack_measure_profile(ctx, track_swiftstack, measure_start_ms);
+		xent_end_text_measure_profile(ctx, measure_start_ms);
 		return true;
 	}
 
 	if (!ctx->text_backend->measure(ctx->text_backend, request, out_metrics)) {
-		xent_end_swiftstack_measure_profile(ctx, track_swiftstack, measure_start_ms);
+		xent_end_text_measure_profile(ctx, measure_start_ms);
 		return false;
 	}
 
 	xent_text_cache_insert(&ctx->text_cache, &cache_key, out_metrics);
-	xent_end_swiftstack_measure_profile(ctx, track_swiftstack, measure_start_ms);
+	xent_end_text_measure_profile(ctx, measure_start_ms);
 	return true;
 }
 

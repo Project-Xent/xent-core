@@ -4,9 +4,9 @@
 
 #include "xent/xent.h"
 
-static double     now_ms(void) { return ( double ) clock() * 1000.0 / ( double ) CLOCKS_PER_SEC; }
+static double now_ms(void) { return ( double ) clock() * 1000.0 / ( double ) CLOCKS_PER_SEC; }
 
-static void configure_protocol_axis(XentContext *ctx, XentNodeId node, XentProtocol protocol) {
+static void   configure_protocol_axis(XentContext *ctx, XentNodeId node, XentProtocol protocol) {
 	if (protocol == XENT_PROTOCOL_FLEX) xent_set_flex_direction(ctx, node, XENT_FLEX_COLUMN);
 	else if (protocol == XENT_PROTOCOL_SWIFTSTACK) xent_set_stack_axis(ctx, node, XENT_AXIS_VERTICAL);
 }
@@ -51,16 +51,12 @@ static void run_case(char const *name, XentProtocol protocol, uint32_t nodes) {
 	  elapsed / ( double ) iterations
 	);
 
-	if (protocol == XENT_PROTOCOL_SWIFTSTACK) {
-		XentProfileStats p = xent_profile_get(ctx);
-		printf(
-		  "  swiftstack_profile total=%.3fms collect=%.3fms sort=%.3fms text=%.3fms allocs=%llu sorts=%llu scans=%llu "
-		  "text_calls=%llu\n",
-		  p.swiftstack_total_ms, p.swiftstack_collect_ms, p.swiftstack_sort_ms, p.swiftstack_text_ms,
-		  ( unsigned long long ) p.temp_allocations, ( unsigned long long ) p.sort_calls,
-		  ( unsigned long long ) p.sibling_scans, ( unsigned long long ) p.text_measure_calls
-		);
-	}
+	XentProfileStats p = xent_profile_get(ctx);
+	printf(
+	  "  profile swiftstack=%.3fms flex=%.3fms grid=%.3fms text_calls=%llu baseline_fallbacks=%llu\n",
+	  p.swiftstack_total_ms, p.flex_total_ms, p.grid_total_ms, ( unsigned long long ) p.text_measure_calls,
+	  ( unsigned long long ) p.text_baseline_fallbacks
+	);
 
 	xent_destroy_context(ctx);
 }

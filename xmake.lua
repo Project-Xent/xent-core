@@ -1,8 +1,31 @@
 set_project("xent-core")
 set_version("0.1.0")
-set_languages("c23", "c++20")
+set_languages("c11")
 add_rules("mode.debug", "mode.release")
 set_warnings("all")
+
+local unit_tests = {
+    "test_tree",
+    "test_traversal",
+    "test_layout_flex",
+    "test_layout_flex_spec",
+    "test_layout_swiftstack",
+    "test_layout_swiftstack_spec",
+    "test_direction",
+    "test_layout_rounding",
+    "test_layout_stress",
+    "test_dirty",
+    "test_text_cache",
+    "test_text_backend_contract",
+    "test_text_linebreak_policy",
+    "test_text_shaping",
+    "test_mixed_protocols",
+    "test_rtl_baseline_conformance",
+    "test_layout_grid",
+    "test_layout_grid_spec",
+    "test_cli",
+    "test_profile",
+}
 
 option("simd")
     set_default(false)
@@ -115,27 +138,7 @@ for _, bench_name in ipairs({ "bench_layout", "bench_simd", "bench_compare_recur
         add_includedirs("include")
 end
 
-for _, test_name in ipairs({
-    "test_tree",
-    "test_traversal",
-    "test_layout_flex",
-    "test_layout_flex_spec",
-    "test_layout_swiftstack",
-    "test_layout_swiftstack_spec",
-    "test_direction",
-    "test_layout_rounding",
-    "test_layout_stress",
-    "test_dirty",
-    "test_text_cache",
-    "test_text_backend_contract",
-    "test_text_linebreak_policy",
-    "test_text_shaping",
-    "test_mixed_protocols",
-    "test_rtl_baseline_conformance",
-    "test_layout_grid",
-    "test_layout_grid_spec",
-    "test_cli",
-}) do
+for _, test_name in ipairs(unit_tests) do
     target(test_name)
         set_kind("binary")
         add_files("tests/" .. test_name .. ".c")
@@ -149,28 +152,7 @@ task("test")
         description = "Build and run all unit tests.",
     }
     on_run( function ()
-        local tests = {
-            "test_tree",
-            "test_traversal",
-            "test_layout_flex",
-            "test_layout_flex_spec",
-            "test_layout_swiftstack",
-            "test_layout_swiftstack_spec",
-            "test_direction",
-            "test_layout_rounding",
-            "test_layout_stress",
-            "test_dirty",
-            "test_text_cache",
-            "test_text_backend_contract",
-            "test_text_linebreak_policy",
-            "test_text_shaping",
-            "test_mixed_protocols",
-            "test_rtl_baseline_conformance",
-            "test_layout_grid",
-            "test_layout_grid_spec",
-            "test_cli",
-        }
-        for _, t in ipairs(tests) do
+        for _, t in ipairs(unit_tests) do
             os.exec("xmake build " .. t)
             os.exec("xmake run " .. t)
         end

@@ -288,15 +288,20 @@ static void grid_layout_children(
 }
 
 void xent_layout_node_grid(XentLayoutRequest const *request) {
-	XentContext    *ctx   = request->ctx;
-	XentNodeId      node  = request->node;
-	GridLayoutFrame frame = {0};
+	XentContext *ctx                = request->ctx;
+	XentNodeId   node               = request->node;
+	double       start              = xent_now_ms();
+	ctx->profile.grid_layout_calls += 1u;
+	ctx->grid_scope_depth          += 1u;
+	GridLayoutFrame frame           = {0};
 	grid_commit_container(request, &frame);
 
 	XentGridDef const *def = ctx->nodes.grid.def [node];
 	if (!def) {
+		double children_start = xent_now_ms();
 		grid_layout_fallback_children(ctx, &frame);
-		return;
+		ctx->profile.grid_children_ms += (xent_now_ms() - children_start);
+		goto finish;
 	}
 
 	GridTrackSet rows    = {0};
@@ -305,19 +310,28 @@ void xent_layout_node_grid(XentLayoutRequest const *request) {
 		  ctx, &rows, (GridTrackInit) {def->row_count, def->row_modes, def->row_values, def->row_gap, frame.content_h}
 		))
 	{
-		return;
+		goto finish;
 	}
 	if (!grid_init_tracks(
 		  ctx, &columns,
 		  (GridTrackInit) {def->col_count, def->col_modes, def->col_values, def->col_gap, frame.content_w}
 		))
 	{
-		return;
+		goto finish;
 	}
 
+	double track_start = xent_now_ms();
 	grid_resolve_tracks(ctx, node, &columns, GRID_AXIS_COLUMNS);
 	grid_resolve_tracks(ctx, node, &rows, GRID_AXIS_ROWS);
 	grid_compute_positions(&columns, frame.content_x);
 	grid_compute_positions(&rows, frame.content_y);
+	ctx->profile.grid_track_ms += (xent_now_ms() - track_start);
+
+	double children_start       = xent_now_ms();
 	grid_layout_children(ctx, &frame, &columns, &rows);
+	ctx->profile.grid_children_ms += (xent_now_ms() - children_start);
+
+finish:
+	ctx->grid_scope_depth      -= 1u;
+	ctx->profile.grid_total_ms += (xent_now_ms() - start);
 }

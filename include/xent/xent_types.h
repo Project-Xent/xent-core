@@ -264,6 +264,10 @@ typedef struct XentTextMetrics {
 	uint32_t line_count;
 } XentTextMetrics;
 
+/* Measure and shape requests intentionally remain separate API types even
+   though their fields match today. Real shaping backends are expected to grow
+   shape-only inputs such as script/language/features without changing the
+   measurement call surface. Keep common fields in sync until then. */
 typedef struct XentTextMeasureRequest {
 	char const         *text;
 	float               font_size;
@@ -336,6 +340,18 @@ typedef struct XentProfileStats {
 	uint64_t sort_calls;
 	uint64_t sibling_scans;
 	uint64_t text_measure_calls;
+	double   flex_total_ms;
+	double   flex_collect_ms;
+	double   flex_line_ms;
+	double   flex_text_ms;
+	double   grid_total_ms;
+	double   grid_track_ms;
+	double   grid_children_ms;
+	double   grid_text_ms;
+	uint64_t swiftstack_layout_calls;
+	uint64_t flex_layout_calls;
+	uint64_t grid_layout_calls;
+	uint64_t text_baseline_fallbacks;
 } XentProfileStats;
 
 typedef struct XentConfig {

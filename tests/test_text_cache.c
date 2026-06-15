@@ -6,7 +6,7 @@ static int test_basic_hit_miss(void) {
 
 	XentTextMetrics        m1      = {0};
 	XentTextMetrics        m2      = {0};
-	XentTextMeasureRequest request = {"cache me", 14.0f, 300.0f, XENT_LINE_BREAK_CHAR_WRAP, XENT_MEASURE_AT_MOST};
+	XentTextMeasureRequest request = {"cache me", 14.0f, 0u, 300.0f, XENT_LINE_BREAK_CHAR_WRAP, XENT_MEASURE_AT_MOST};
 
 	TEST_ASSERT(xent_measure_text(ctx, &request, &m1));
 	TEST_ASSERT(xent_measure_text(ctx, &request, &m2));
@@ -34,7 +34,7 @@ static int test_mono_font_size_key_normalized(void) {
 	XentTextMetrics        m1 = {0};
 	XentTextMetrics        m2 = {0};
 	XentTextMeasureRequest request
-	  = {"same mono width", 14.0f, 300.0f, XENT_LINE_BREAK_CHAR_WRAP, XENT_MEASURE_AT_MOST};
+	  = {"same mono width", 14.0f, 0u, 300.0f, XENT_LINE_BREAK_CHAR_WRAP, XENT_MEASURE_AT_MOST};
 
 	TEST_ASSERT(xent_measure_text(ctx, &request, &m1));
 	XentTextCacheStats before_font_change = xent_get_text_cache_stats(ctx);
@@ -57,7 +57,7 @@ static int test_many_unique_keys(void) {
 	for (uint32_t i = 0u; i < 1024u; ++i) {
 		snprintf(buf, sizeof(buf), "cache-key-%u", i);
 		XentTextMetrics        metrics = {0};
-		XentTextMeasureRequest request = {buf, 14.0f, 300.0f, XENT_LINE_BREAK_CHAR_WRAP, XENT_MEASURE_AT_MOST};
+		XentTextMeasureRequest request = {buf, 14.0f, 0u, 300.0f, XENT_LINE_BREAK_CHAR_WRAP, XENT_MEASURE_AT_MOST};
 		TEST_ASSERT(xent_measure_text(ctx, &request, &metrics));
 	}
 
@@ -67,7 +67,7 @@ static int test_many_unique_keys(void) {
 
 	snprintf(buf, sizeof(buf), "cache-key-%u", 777u);
 	XentTextMetrics        metrics = {0};
-	XentTextMeasureRequest request = {buf, 14.0f, 300.0f, XENT_LINE_BREAK_CHAR_WRAP, XENT_MEASURE_AT_MOST};
+	XentTextMeasureRequest request = {buf, 14.0f, 0u, 300.0f, XENT_LINE_BREAK_CHAR_WRAP, XENT_MEASURE_AT_MOST};
 	TEST_ASSERT(xent_measure_text(ctx, &request, &metrics));
 	XentTextCacheStats after_hit = xent_get_text_cache_stats(ctx);
 	TEST_ASSERT(after_hit.hits > stats.hits);
@@ -84,7 +84,7 @@ static int test_eviction_on_overflow(void) {
 	for (uint32_t i = 0u; i < 5000u; ++i) {
 		snprintf(buf, sizeof(buf), "overflow-key-%u", i);
 		XentTextMetrics        metrics = {0};
-		XentTextMeasureRequest request = {buf, 14.0f, 300.0f, XENT_LINE_BREAK_CHAR_WRAP, XENT_MEASURE_AT_MOST};
+		XentTextMeasureRequest request = {buf, 14.0f, 0u, 300.0f, XENT_LINE_BREAK_CHAR_WRAP, XENT_MEASURE_AT_MOST};
 		TEST_ASSERT(xent_measure_text(ctx, &request, &metrics));
 	}
 

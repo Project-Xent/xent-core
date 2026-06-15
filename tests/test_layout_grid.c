@@ -33,8 +33,8 @@ static int test_basic_grid(void) {
 	TEST_ASSERT(xent_get_layout_rect(ctx, left, &left_rect));
 	TEST_ASSERT(xent_get_layout_rect(ctx, right, &right_rect));
 
-	TEST_ASSERT(test_float_near(left_rect.width, 120.0f, 0.5f));
-	TEST_ASSERT(test_float_near(right_rect.width, 280.0f, 0.5f));
+	TEST_ASSERT(test_float_near(left_rect.w, 120.0f, 0.5f));
+	TEST_ASSERT(test_float_near(right_rect.w, 280.0f, 0.5f));
 	TEST_ASSERT(test_float_near(right_rect.x, 120.0f, 0.5f));
 
 	xent_destroy_context(ctx);
@@ -70,9 +70,9 @@ static int test_grid_auto_span_contributes_to_tracks(void) {
 	XentRect tail_rect = {0};
 	TEST_ASSERT(xent_get_layout_rect(ctx, span, &span_rect));
 	TEST_ASSERT(xent_get_layout_rect(ctx, tail, &tail_rect));
-	TEST_ASSERT(test_float_near(span_rect.width, 120.0f, 0.5f));
+	TEST_ASSERT(test_float_near(span_rect.w, 120.0f, 0.5f));
 	TEST_ASSERT(test_float_near(tail_rect.x, 120.0f, 0.5f));
-	TEST_ASSERT(test_float_near(tail_rect.width, 180.0f, 0.5f));
+	TEST_ASSERT(test_float_near(tail_rect.w, 180.0f, 0.5f));
 
 	xent_destroy_context(ctx);
 	return 0;
@@ -87,6 +87,7 @@ static int test_grid_dirty_root_promotion(void) {
 	XentNodeId child   = xent_create_node(ctx);
 	XentNodeId sibling = xent_create_node(ctx);
 	TEST_ASSERT(xent_set_protocol(ctx, root, XENT_PROTOCOL_FLEX));
+	TEST_ASSERT(xent_set_flex_direction(ctx, root, XENT_FLEX_ROW));
 	TEST_ASSERT(xent_set_size(ctx, root, (XentSize) {300.0f, 100.0f}));
 	TEST_ASSERT(xent_set_protocol(ctx, grid, XENT_PROTOCOL_GRID));
 	TEST_ASSERT(xent_set_size(ctx, grid, (XentSize) {NAN, NAN}));
@@ -99,7 +100,10 @@ static int test_grid_dirty_root_promotion(void) {
 
 	TEST_ASSERT(xent_set_size(ctx, child, (XentSize) {60.0f, 20.0f}));
 	TEST_ASSERT(xent_layout(ctx, root, 300.0f, 100.0f));
-	TEST_ASSERT(xent_get_last_layout_strategy(ctx) == XENT_LAYOUT_STRATEGY_DIRTY_SUBTREE);
+	XentRect child_rect = {0};
+	TEST_ASSERT(xent_get_layout_rect(ctx, child, &child_rect));
+	TEST_ASSERT(test_float_near(child_rect.w, 60.0f, 0.5f));
+	TEST_ASSERT(xent_get_last_layout_strategy(ctx) == XENT_LAYOUT_STRATEGY_FULL_TREE);
 
 	xent_destroy_context(ctx);
 	return 0;
@@ -119,8 +123,8 @@ static int test_percent_size_and_aspect_ratio(void) {
 
 	XentRect rect = {0};
 	TEST_ASSERT(xent_get_layout_rect(ctx, child, &rect));
-	TEST_ASSERT(test_float_near(rect.width, 200.0f, 0.5f));
-	TEST_ASSERT(test_float_near(rect.height, 100.0f, 0.5f));
+	TEST_ASSERT(test_float_near(rect.w, 200.0f, 0.5f));
+	TEST_ASSERT(test_float_near(rect.h, 100.0f, 0.5f));
 
 	xent_destroy_context(ctx);
 	return 0;

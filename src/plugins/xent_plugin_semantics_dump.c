@@ -1,4 +1,5 @@
 #include "../xent_internal.h"
+#include "xent/xent_cli.h"
 
 static void semantics_dump_on_frame_end(XentContext *ctx, XentPlugin const *plugin) {
 	FILE      *out  = plugin && plugin->user_data ? ( FILE * ) plugin->user_data : stdout;

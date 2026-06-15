@@ -9,7 +9,7 @@ void xent_layout_node_absolute(XentLayoutRequest const *request) {
 	float        origin_y    = request->origin_y;
 	float width  = 0.0f;
 	float height = 0.0f;
-	xent_compute_intrinsic_size(ctx, node, available_w, available_h, &width, &height);
+	xent_decide_node_box(ctx, node, available_w, available_h, request->definite_w, request->definite_h, &width, &height);
 
 	float const x                       = origin_x + ctx->nodes.layout.abs_pos_x [node];
 	float const y                       = origin_y + ctx->nodes.layout.abs_pos_y [node];

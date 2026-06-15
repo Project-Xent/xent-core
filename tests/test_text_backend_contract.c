@@ -51,7 +51,7 @@ int main(void) {
 	TEST_ASSERT(xent_get_text_backend(ctx) == &valid);
 
 	XentTextMetrics        metrics = {0};
-	XentTextMeasureRequest request = {"hello", 14.0f, 33.0f, XENT_LINE_BREAK_NO_WRAP, XENT_MEASURE_EXACTLY};
+	XentTextMeasureRequest request = {"hello", 14.0f, 0u, 33.0f, XENT_LINE_BREAK_NO_WRAP, XENT_MEASURE_EXACTLY};
 	TEST_ASSERT(xent_measure_text(ctx, &request, &metrics));
 	TEST_ASSERT(test_float_near(metrics.width, 33.0f, 0.001f));
 	TEST_ASSERT(test_float_near(metrics.height, 20.0f, 0.001f));

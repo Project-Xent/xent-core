@@ -147,7 +147,8 @@ static bool xent_line_break_policy_valid(XentLineBreakPolicy policy) {
 }
 
 static bool xent_width_mode_valid(XentMeasureMode mode) {
-	return mode == XENT_MEASURE_UNDEFINED || mode == XENT_MEASURE_AT_MOST || mode == XENT_MEASURE_EXACTLY;
+	return mode == XENT_MEASURE_UNDEFINED || mode == XENT_MEASURE_AT_MOST || mode == XENT_MEASURE_EXACTLY
+	    || mode == XENT_MEASURE_MIN_CONTENT;
 }
 
 static bool xent_shape_output_valid(XentTextShapeOutput const *output) {
@@ -247,12 +248,34 @@ static void xent_build_lines_word_wrap(XentMonoShape *shape, uint32_t max_glyphs
 	}
 }
 
+/* min-content: break at EVERY break opportunity so each line is one unbreakable
+ * run (a "word"); the widest line is the text's min-content width. */
+static void xent_build_lines_min_content(XentMonoShape *shape) {
+	uint32_t line_start = 0u;
+	for (uint32_t scan = 0u; scan < shape->glyph_count; ++scan) {
+		if (shape->glyphs [scan].break_after != 0u) {
+			xent_add_line(&shape->lines, line_start, scan + 1u - line_start);
+			line_start = scan + 1u;
+		}
+	}
+	if (line_start < shape->glyph_count) xent_add_line(&shape->lines, line_start, shape->glyph_count - line_start);
+}
+
 static bool xent_build_line_plan(XentMonoShape *shape) {
 	shape->lines.count = 1u;
 	if (shape->glyph_count == 0u) return true;
 	if (!xent_alloc_line_buffers(shape)) return false;
 
 	shape->lines.count           = 0u;
+
+	/* min-content: each unbreakable run on its own line (longest = min-content),
+	 * unless wrapping is disabled — then min-content == max-content (one line). */
+	if (shape->request->width_mode == XENT_MEASURE_MIN_CONTENT) {
+		if (shape->request->line_break_policy == XENT_LINE_BREAK_NO_WRAP) xent_build_lines_no_wrap(shape);
+		else xent_build_lines_min_content(shape);
+		return true;
+	}
+
 	uint32_t max_glyphs_per_line = xent_resolve_max_glyphs_per_line(
 	  shape->glyph_width, shape->request->width_constraint, shape->request->line_break_policy,
 	  shape->request->width_mode
@@ -398,6 +421,7 @@ xent_measure_mono(XentTextBackend const *backend, XentTextMeasureRequest const *
 	XentTextShapeRequest shape_request = {
 	  request ? request->text : NULL,
 	  request ? request->font_size : 0.0f,
+	  request ? request->font_weight : 0u,
 	  request ? request->width_constraint : 0.0f,
 	  request ? request->line_break_policy : XENT_LINE_BREAK_NO_WRAP,
 	  request ? request->width_mode : XENT_MEASURE_UNDEFINED,

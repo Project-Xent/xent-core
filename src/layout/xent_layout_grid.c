@@ -74,7 +74,9 @@ static void grid_commit_container(XentLayoutRequest const *request, GridLayoutFr
 	XentNodeId   node   = request->node;
 	float        width  = 0.0f;
 	float        height = 0.0f;
-	xent_compute_intrinsic_size(ctx, node, request->available_w, request->available_h, &width, &height);
+	xent_decide_node_box(
+	  ctx, node, request->available_w, request->available_h, request->definite_w, request->definite_h, &width, &height
+	);
 
 	ctx->nodes.layout.proposed_w [node] = request->available_w;
 	ctx->nodes.layout.proposed_h [node] = request->available_h;
@@ -128,9 +130,14 @@ static bool grid_init_tracks(XentContext *ctx, GridTrackSet *tracks, GridTrackIn
 	tracks->gap       = init.gap < 0.0f ? 0.0f : init.gap;
 	tracks->available = init.available;
 	if (tracks->count == 0u) grid_init_default_track(tracks);
-	tracks->sizes     = ( float * ) xent_scratch_alloc(ctx, sizeof(float) * ( size_t ) tracks->count, _Alignof(float));
-	tracks->positions = ( float * ) xent_scratch_alloc(ctx, sizeof(float) * ( size_t ) tracks->count, _Alignof(float));
-	return tracks->sizes && tracks->positions;
+
+	size_t bytes = sizeof(float) * ( size_t ) tracks->count;
+	uint8_t *block = ( uint8_t * ) xent_scratch_alloc(ctx, bytes + bytes, _Alignof(float));
+	if (!block) return false;
+
+	tracks->sizes     = ( float * ) block;
+	tracks->positions = ( float * ) (block + bytes);
+	return true;
 }
 
 static GridAxisPlacement
@@ -274,7 +281,7 @@ grid_layout_child(XentContext *ctx, XentNodeId child, GridTrackSet const *column
 	float              child_h   = grid_content_extent(placement.cell_h, placement.margin_t, placement.margin_b);
 	float              child_x   = placement.cell_x + placement.margin_l;
 	float              child_y   = placement.cell_y + placement.margin_t;
-	xent_layout_dispatch_node(&(XentLayoutRequest) {ctx, child, child_w, child_h, child_x, child_y});
+	xent_layout_dispatch_node(&(XentLayoutRequest) {ctx, child, child_w, child_h, child_x, child_y, true, true});
 }
 
 static void grid_layout_children(

@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#include "xent/xent_cli.h"
+
 static int test_json_escapes_control_characters(void) {
 	XentContext *ctx = xent_create_context(NULL);
 	TEST_ASSERT(ctx != NULL);

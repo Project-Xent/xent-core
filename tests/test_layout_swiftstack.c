@@ -33,7 +33,7 @@ int main(void) {
 	TEST_ASSERT(xent_get_layout_rect(ctx, spacer, &spacer_rect));
 	TEST_ASSERT(xent_get_layout_rect(ctx, tail, &tail_rect));
 
-	TEST_ASSERT(spacer_rect.width > 40.0f);
+	TEST_ASSERT(spacer_rect.w > 40.0f);
 	TEST_ASSERT(tail_rect.x > spacer_rect.x);
 
 	xent_destroy_context(ctx);

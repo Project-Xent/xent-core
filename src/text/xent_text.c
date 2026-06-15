@@ -14,6 +14,7 @@ static XentTextCacheKey xent_text_cache_key_from_measure_request(XentTextMeasure
 	return (XentTextCacheKey) {
 	  request->text,
 	  request->font_size,
+	  request->font_weight,
 	  request->width_constraint,
 	  request->line_break_policy,
 	  request->width_mode,
@@ -24,6 +25,7 @@ static XentTextCacheKey xent_text_cache_key_from_shape_request(XentTextShapeRequ
 	return (XentTextCacheKey) {
 	  request->text,
 	  request->font_size,
+	  request->font_weight,
 	  request->width_constraint,
 	  request->line_break_policy,
 	  request->width_mode,
@@ -31,7 +33,10 @@ static XentTextCacheKey xent_text_cache_key_from_shape_request(XentTextShapeRequ
 }
 
 static void xent_normalize_text_cache_key_for_backend(XentContext const *ctx, XentTextCacheKey *key) {
-	if (ctx->text_backend == &ctx->mono_backend) key->font_size = 0.0f;
+	if (ctx->text_backend == &ctx->mono_backend) {
+		key->font_size   = 0.0f;
+		key->font_weight = 0u;
+	}
 }
 
 bool xent_validate_text_backend(XentTextBackend const *backend) {
@@ -88,6 +93,14 @@ char const *xent_get_text(XentContext const *ctx, XentNodeId node) {
 bool xent_set_font_size(XentContext *ctx, XentNodeId node, float font_size) {
 	if (!xent_is_valid_node(ctx, node) || font_size <= 0.0f) return false;
 	ctx->nodes.text.font_size [node]       = font_size;
+	ctx->nodes.text.intrinsic_valid [node] = 0u;
+	xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
+	return true;
+}
+
+bool xent_set_font_weight(XentContext *ctx, XentNodeId node, uint16_t weight) {
+	if (!xent_is_valid_node(ctx, node)) return false;
+	ctx->nodes.text.font_weight [node]     = weight;
 	ctx->nodes.text.intrinsic_valid [node] = 0u;
 	xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
 	return true;

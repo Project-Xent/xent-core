@@ -39,92 +39,15 @@ XentNodeId xent_create_node(XentContext *ctx) {
 		}
 	}
 
-	ctx->nodes.lifetime.alive [id]         = 1u;
-	ctx->nodes.topology.parent [id]        = XENT_NODE_INVALID;
-	ctx->nodes.topology.first_child [id]   = XENT_NODE_INVALID;
-	ctx->nodes.topology.last_child [id]    = XENT_NODE_INVALID;
-	ctx->nodes.topology.next_sibling [id]  = XENT_NODE_INVALID;
-	ctx->nodes.topology.prev_sibling [id]  = XENT_NODE_INVALID;
-	ctx->nodes.topology.child_count [id]   = 0u;
+	free(ctx->nodes.text.content [id]);
+	ctx->nodes.text.content [id] = NULL;
+	free(ctx->nodes.semantics.label [id]);
+	ctx->nodes.semantics.label [id] = NULL;
+	xent_free_grid_def(ctx->nodes.grid.def [id]);
+	ctx->nodes.grid.def [id] = NULL;
 
-	ctx->nodes.layout.protocol [id]        = ( uint8_t ) XENT_PROTOCOL_ABSOLUTE;
-	ctx->nodes.layout.direction [id]       = ( uint8_t ) XENT_DIRECTION_INHERIT;
-	ctx->nodes.layout.dirty_flags [id]     = XENT_DIRTY_NONE;
-
-	ctx->nodes.layout.style_w [id]         = NAN;
-	ctx->nodes.layout.style_h [id]         = NAN;
-	ctx->nodes.layout.style_w_percent [id] = NAN;
-	ctx->nodes.layout.style_h_percent [id] = NAN;
-	ctx->nodes.layout.aspect_ratio [id]    = NAN;
-	ctx->nodes.layout.min_w [id]           = 0.0f;
-	ctx->nodes.layout.min_h [id]           = 0.0f;
-	ctx->nodes.layout.max_w [id]           = INFINITY;
-	ctx->nodes.layout.max_h [id]           = INFINITY;
-
-	ctx->nodes.flex.grow [id]              = 0.0f;
-	ctx->nodes.flex.shrink [id]            = 1.0f;
-	ctx->nodes.flex.basis [id]             = NAN;
-	ctx->nodes.flex.direction [id]         = ( uint8_t ) XENT_FLEX_ROW;
-	ctx->nodes.flex.wrap [id]              = ( uint8_t ) XENT_FLEX_NO_WRAP;
-	ctx->nodes.flex.justify_content [id]   = ( uint8_t ) XENT_FLEX_JUSTIFY_START;
-	ctx->nodes.flex.align_items [id]       = ( uint8_t ) XENT_FLEX_ALIGN_START;
-	ctx->nodes.flex.align_self [id]        = ( uint8_t ) XENT_FLEX_ALIGN_AUTO;
-	ctx->nodes.flex.align_content [id]     = ( uint8_t ) XENT_FLEX_ALIGN_CONTENT_START;
-
-	ctx->nodes.stack.axis [id]             = ( uint8_t ) XENT_AXIS_HORIZONTAL;
-	ctx->nodes.stack.align [id]            = ( uint8_t ) XENT_STACK_ALIGN_START;
-	ctx->nodes.stack.priority [id]         = 0.0f;
-	ctx->nodes.stack.spacer [id]           = 0u;
-
-	ctx->nodes.layout.abs_pos_x [id]       = 0.0f;
-	ctx->nodes.layout.abs_pos_y [id]       = 0.0f;
-	ctx->nodes.layout.gap [id]             = 0.0f;
-	ctx->nodes.layout.z_index [id]         = 0;
-
-	if (ctx->nodes.text.content [id]) {
-		free(ctx->nodes.text.content [id]);
-		ctx->nodes.text.content [id] = NULL;
-	}
-	ctx->nodes.text.font_size [id]                   = 14.0f;
-	ctx->nodes.text.line_break_policy [id]           = ( uint8_t ) XENT_LINE_BREAK_CHAR_WRAP;
-	ctx->nodes.text.intrinsic_valid [id]             = 0u;
-	ctx->nodes.text.intrinsic_constraint_w [id]      = NAN;
-	ctx->nodes.text.intrinsic_font_size [id]         = 0.0f;
-	ctx->nodes.text.intrinsic_line_break_policy [id] = ( uint8_t ) XENT_LINE_BREAK_CHAR_WRAP;
-	ctx->nodes.text.intrinsic_width_mode [id]        = ( uint8_t ) XENT_MEASURE_UNDEFINED;
-	ctx->nodes.text.intrinsic_w [id]                 = 0.0f;
-	ctx->nodes.text.intrinsic_h [id]                 = 0.0f;
-	ctx->nodes.text.intrinsic_lines [id]             = 0u;
-
-	ctx->nodes.semantics.role [id]                   = ( uint8_t ) XENT_SEMANTIC_NONE;
-	if (ctx->nodes.semantics.label [id]) {
-		free(ctx->nodes.semantics.label [id]);
-		ctx->nodes.semantics.label [id] = NULL;
-	}
-	ctx->nodes.semantics.flags [id]                   = 0u;
-
-	ctx->nodes.external.userdata [id]                 = NULL;
-	ctx->nodes.external.payload [id]                  = NULL;
-	ctx->nodes.external.payload_type [id]             = 0u;
-	ctx->nodes.external.payload_destroy [id]          = NULL;
-	ctx->nodes.external.payload_destroy_userdata [id] = NULL;
-	ctx->nodes.external.control_type [id]             = ( uint8_t ) XENT_CONTROL_CONTAINER;
-	ctx->nodes.semantics.checked [id]                 = 0u;
-	ctx->nodes.semantics.enabled [id]                 = 1u;
-	ctx->nodes.semantics.expanded [id]                = 0u;
-	ctx->nodes.semantics.selected [id]                = 0u;
-	ctx->nodes.semantics.value_now [id]               = 0.0f;
-	ctx->nodes.semantics.value_min [id]               = 0.0f;
-	ctx->nodes.semantics.value_max [id]               = 0.0f;
-
-	if (ctx->nodes.grid.def [id]) {
-		xent_free_grid_def(ctx->nodes.grid.def [id]);
-		ctx->nodes.grid.def [id] = NULL;
-	}
-	ctx->nodes.grid.row [id]         = 0;
-	ctx->nodes.grid.column [id]      = 0;
-	ctx->nodes.grid.row_span [id]    = 1;
-	ctx->nodes.grid.column_span [id] = 1;
+	xent_arena_reset_node(&ctx->nodes, id);
+	ctx->nodes.lifetime.alive [id] = 1u;
 	xent_mark_dirty(ctx, id, XENT_DIRTY_LAYOUT);
 
 	return id;
@@ -137,14 +60,6 @@ static void xent_destroy_single_node(XentContext *ctx, XentNodeId node) {
 	free(ctx->nodes.semantics.label [node]);
 	ctx->nodes.semantics.label [node]   = NULL;
 	ctx->nodes.external.userdata [node] = NULL;
-	if (ctx->nodes.external.payload_destroy [node] && ctx->nodes.external.payload [node])
-		ctx->nodes.external.payload_destroy [node](
-		  ctx->nodes.external.payload [node], ctx->nodes.external.payload_destroy_userdata [node]
-		);
-	ctx->nodes.external.payload [node]                  = NULL;
-	ctx->nodes.external.payload_type [node]             = 0u;
-	ctx->nodes.external.payload_destroy [node]          = NULL;
-	ctx->nodes.external.payload_destroy_userdata [node] = NULL;
 
 	xent_free_grid_def(ctx->nodes.grid.def [node]);
 	ctx->nodes.grid.def [node]       = NULL;
@@ -163,6 +78,7 @@ static void xent_destroy_single_node(XentContext *ctx, XentNodeId node) {
 	ctx->nodes.topology.prev_sibling [node] = XENT_NODE_INVALID;
 	ctx->nodes.topology.child_count [node]  = 0u;
 	ctx->nodes.layout.dirty_flags [node]    = XENT_DIRTY_NONE;
+	ctx->nodes.layout.dirty_queued [node]   = 0u;
 	( void ) xent_push_free_id(ctx, node);
 }
 

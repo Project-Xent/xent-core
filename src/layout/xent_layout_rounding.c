@@ -4,19 +4,26 @@
   #include "xent_ispc_kernels_ispc.h"
 #endif
 
-static float xent_round_to_pixel_grid(XentContext const *ctx, float value) {
-	if (!ctx->config.enable_pixel_rounding) return value;
-	float scale = ctx->config.point_scale_factor;
-	if (!(scale > 0.0f) || !isfinite(scale) || !isfinite(value)) return value;
-	return roundf(value * scale) / scale;
-}
-
 void xent_quantize_node_layout(XentContext *ctx, XentNodeId node) {
 	if (!xent_is_valid_node(ctx, node)) return;
-	ctx->nodes.layout.abs_x [node]     = xent_round_to_pixel_grid(ctx, ctx->nodes.layout.abs_x [node]);
-	ctx->nodes.layout.abs_y [node]     = xent_round_to_pixel_grid(ctx, ctx->nodes.layout.abs_y [node]);
-	ctx->nodes.layout.decided_w [node] = xent_round_to_pixel_grid(ctx, ctx->nodes.layout.decided_w [node]);
-	ctx->nodes.layout.decided_h [node] = xent_round_to_pixel_grid(ctx, ctx->nodes.layout.decided_h [node]);
+	if (!ctx->config.enable_pixel_rounding) return;
+	float scale = ctx->config.point_scale_factor;
+	if (!(scale > 0.0f) || !isfinite(scale)) return;
+
+	/* Round to the pixel grid by EDGE, not by size: snap the start edge and the
+	 * far edge (position + size) to the grid independently, then derive the size
+	 * as their difference. This is what lets adjacent items tile to integer
+	 * pixels without cumulative gaps/overlaps (CSS pixel snapping). */
+	float x  = ctx->nodes.layout.abs_x [node];
+	float y  = ctx->nodes.layout.abs_y [node];
+	float w  = ctx->nodes.layout.decided_w [node];
+	float h  = ctx->nodes.layout.decided_h [node];
+	float rx = roundf(x * scale) / scale;
+	float ry = roundf(y * scale) / scale;
+	ctx->nodes.layout.abs_x [node] = rx;
+	ctx->nodes.layout.abs_y [node] = ry;
+	if (isfinite(w)) ctx->nodes.layout.decided_w [node] = roundf((x + w) * scale) / scale - rx;
+	if (isfinite(h)) ctx->nodes.layout.decided_h [node] = roundf((y + h) * scale) / scale - ry;
 }
 
 #if XENT_ISPC_ENABLED
@@ -35,12 +42,15 @@ typedef struct XentQuantizeBuffers {
 } XentQuantizeBuffers;
 
 static XentQuantizeBuffers xent_alloc_quantize_buffers(XentContext *ctx, uint32_t count) {
-	size_t bytes = sizeof(float) * ( size_t ) count;
+	size_t   bytes = sizeof(float) * ( size_t ) count;
+	uint8_t *block = ( uint8_t * ) xent_scratch_alloc(ctx, bytes * 4u, _Alignof(float));
+	if (!block) return (XentQuantizeBuffers) {0};
+
 	return (XentQuantizeBuffers) {
-	  ( float * ) xent_scratch_alloc(ctx, bytes, _Alignof(float)),
-	  ( float * ) xent_scratch_alloc(ctx, bytes, _Alignof(float)),
-	  ( float * ) xent_scratch_alloc(ctx, bytes, _Alignof(float)),
-	  ( float * ) xent_scratch_alloc(ctx, bytes, _Alignof(float)),
+	  ( float * ) block,
+	  ( float * ) (block + bytes),
+	  ( float * ) (block + bytes * 2u),
+	  ( float * ) (block + bytes * 3u),
 	};
 }
 

@@ -27,6 +27,7 @@ bool                   xent_validate_text_backend(XentTextBackend const *backend
 
 bool                   xent_set_text(XentContext *ctx, XentNodeId node, char const *text);
 bool                   xent_set_font_size(XentContext *ctx, XentNodeId node, float font_size);
+bool                   xent_set_font_weight(XentContext *ctx, XentNodeId node, uint16_t weight);
 bool                   xent_set_text_line_break_policy(XentContext *ctx, XentNodeId node, XentLineBreakPolicy policy);
 XentLineBreakPolicy    xent_get_text_line_break_policy(XentContext const *ctx, XentNodeId node);
 

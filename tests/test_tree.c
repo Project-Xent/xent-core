@@ -17,6 +17,8 @@ static void     test_lifecycle(
 int main(void) {
 	XentContext *ctx = xent_create_context(NULL);
 	TEST_ASSERT(ctx != NULL);
+	TEST_ASSERT(!xent_reserve_nodes(NULL, 1u));
+	TEST_ASSERT(xent_reserve_nodes(ctx, 8u));
 	TEST_ASSERT(xent_set_node_lifecycle_callback(ctx, test_lifecycle, NULL));
 
 	XentNodeId root = xent_create_node(ctx);
@@ -63,22 +65,16 @@ int main(void) {
 	TEST_ASSERT(!xent_set_userdata(ctx, XENT_NODE_INVALID, &payload));
 	TEST_ASSERT(xent_get_userdata(ctx, XENT_NODE_INVALID) == NULL);
 
-	TEST_ASSERT(xent_set_node_payload(ctx, a, 7u, &payload, NULL, NULL));
-	TEST_ASSERT(xent_get_node_payload(ctx, a, 7u) == &payload);
-	TEST_ASSERT(xent_get_node_payload(ctx, a, 8u) == NULL);
-	TEST_ASSERT(xent_get_node_payload_type(ctx, a) == 7u);
-	TEST_ASSERT(xent_clear_node_payload(ctx, a));
-	TEST_ASSERT(xent_get_node_payload(ctx, a, 0u) == NULL);
 
-	TEST_ASSERT(xent_get_control_type(ctx, a) == XENT_CONTROL_CONTAINER);
-	TEST_ASSERT(xent_set_control_type(ctx, a, XENT_CONTROL_BUTTON));
-	TEST_ASSERT(xent_get_control_type(ctx, a) == XENT_CONTROL_BUTTON);
-	TEST_ASSERT(xent_set_control_type(ctx, a, XENT_CONTROL_SLIDER));
-	TEST_ASSERT(xent_get_control_type(ctx, a) == XENT_CONTROL_SLIDER);
-	TEST_ASSERT(xent_set_control_type(ctx, a, XENT_CONTROL_CUSTOM));
-	TEST_ASSERT(xent_get_control_type(ctx, a) == XENT_CONTROL_CUSTOM);
-	TEST_ASSERT(!xent_set_control_type(ctx, XENT_NODE_INVALID, XENT_CONTROL_TEXT));
-	TEST_ASSERT(xent_get_control_type(ctx, XENT_NODE_INVALID) == XENT_CONTROL_CONTAINER);
+	TEST_ASSERT(xent_get_node_tag(ctx, a) == 0);
+	TEST_ASSERT(xent_set_node_tag(ctx, a, 2));
+	TEST_ASSERT(xent_get_node_tag(ctx, a) == 2);
+	TEST_ASSERT(xent_set_node_tag(ctx, a, 7));
+	TEST_ASSERT(xent_get_node_tag(ctx, a) == 7);
+	TEST_ASSERT(xent_set_node_tag(ctx, a, 26));
+	TEST_ASSERT(xent_get_node_tag(ctx, a) == 26);
+	TEST_ASSERT(!xent_set_node_tag(ctx, XENT_NODE_INVALID, 1));
+	TEST_ASSERT(xent_get_node_tag(ctx, XENT_NODE_INVALID) == 0);
 
 	TEST_ASSERT(xent_get_semantic_checked(ctx, a) == 0u);
 	TEST_ASSERT(xent_set_semantic_checked(ctx, a, 1));
@@ -112,14 +108,14 @@ int main(void) {
 	TEST_ASSERT(xent_get_semantic_value(ctx, a, NULL, NULL, NULL));
 
 	TEST_ASSERT(xent_set_userdata(ctx, c, &payload));
-	TEST_ASSERT(xent_set_control_type(ctx, c, XENT_CONTROL_CHECKBOX));
+	TEST_ASSERT(xent_set_node_tag(ctx, c, 4));
 	TEST_ASSERT(xent_set_semantic_checked(ctx, c, 1));
 	TEST_ASSERT(xent_destroy_node(ctx, c));
 	TEST_ASSERT(lifecycle_destroy_count == 1u);
 	XentNodeId d = xent_create_node(ctx);
 	TEST_ASSERT(d != XENT_NODE_INVALID);
 	TEST_ASSERT(xent_get_userdata(ctx, d) == NULL);
-	TEST_ASSERT(xent_get_control_type(ctx, d) == XENT_CONTROL_CONTAINER);
+	TEST_ASSERT(xent_get_node_tag(ctx, d) == 0);
 	TEST_ASSERT(xent_get_semantic_checked(ctx, d) == 0u);
 	TEST_ASSERT(xent_get_semantic_enabled(ctx, d) == true);
 

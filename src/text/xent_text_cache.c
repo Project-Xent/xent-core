@@ -46,6 +46,7 @@ static uint64_t xent_hash_text_cache_key(XentTextCacheKey const *key) {
 	uint8_t  width_mode        = ( uint8_t ) key->width_mode;
 	hash                       = xent_hash_bytes(hash, key->text, strlen(key->text));
 	hash                       = xent_hash_bytes(hash, &key->font_size, sizeof(key->font_size));
+	hash                       = xent_hash_bytes(hash, &key->font_weight, sizeof(key->font_weight));
 	hash                       = xent_hash_bytes(hash, &key->width_constraint, sizeof(key->width_constraint));
 	hash                       = xent_hash_bytes(hash, &line_break_policy, sizeof(line_break_policy));
 	hash                       = xent_hash_bytes(hash, &width_mode, sizeof(width_mode));
@@ -56,6 +57,7 @@ static bool
 xent_cached_text_key_matches(XentCachedTextKey const *cached, XentTextCacheKey const *key, uint64_t key_hash) {
 	return cached->hash == key_hash
 	    && xent_float_bits_equal(cached->font_size, key->font_size)
+	    && cached->font_weight == key->font_weight
 	    && xent_float_bits_equal(cached->width_constraint, key->width_constraint)
 	    && cached->line_break_policy == ( uint8_t ) key->line_break_policy
 	    && cached->width_mode == ( uint8_t ) key->width_mode
@@ -68,6 +70,7 @@ static bool xent_cached_text_key_copy(XentCachedTextKey *cached, XentTextCacheKe
 
 	cached->hash              = key_hash;
 	cached->font_size         = key->font_size;
+	cached->font_weight       = key->font_weight;
 	cached->width_constraint  = key->width_constraint;
 	cached->line_break_policy = ( uint8_t ) key->line_break_policy;
 	cached->width_mode        = ( uint8_t ) key->width_mode;

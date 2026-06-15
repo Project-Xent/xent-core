@@ -107,10 +107,10 @@ static int validate_leaf_rect(XentContext *ctx, XentNodeId leaf) {
 	TEST_ASSERT(xent_get_layout_rect(ctx, leaf, &rect));
 	TEST_ASSERT(isfinite(rect.x));
 	TEST_ASSERT(isfinite(rect.y));
-	TEST_ASSERT(isfinite(rect.width));
-	TEST_ASSERT(isfinite(rect.height));
-	TEST_ASSERT(rect.width >= 0.0f);
-	TEST_ASSERT(rect.height >= 0.0f);
+	TEST_ASSERT(isfinite(rect.w));
+	TEST_ASSERT(isfinite(rect.h));
+	TEST_ASSERT(rect.w >= 0.0f);
+	TEST_ASSERT(rect.h >= 0.0f);
 	return 0;
 }
 

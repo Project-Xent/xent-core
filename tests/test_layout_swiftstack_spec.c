@@ -47,7 +47,7 @@ typedef int (*StackRelationCheckFn)(
   StackPairRects const *rects, XentContext *ctx, XentNodeId const *nodes, uint32_t count, float eps
 );
 
-static int stack_finite_size(XentSize s) { return isfinite(s.width) || isfinite(s.height); }
+static int stack_finite_size(XentSize s) { return isfinite(s.w) || isfinite(s.h); }
 
 static int stack_finite_inset(XentInsets i) {
 	return isfinite(i.top) || isfinite(i.right) || isfinite(i.bottom) || isfinite(i.left);
@@ -78,8 +78,8 @@ static int stack_check_rect(XentContext *ctx, XentNodeId node, StackChildCase co
 	TEST_ASSERT(xent_get_layout_rect(ctx, node, &rect));
 	if (expect->check_mask & SCHK_X) TEST_ASSERT(test_float_near(rect.x, expect->expected_x, eps));
 	if (expect->check_mask & SCHK_Y) TEST_ASSERT(test_float_near(rect.y, expect->expected_y, eps));
-	if (expect->check_mask & SCHK_W) TEST_ASSERT(test_float_near(rect.width, expect->expected_w, eps));
-	if (expect->check_mask & SCHK_H) TEST_ASSERT(test_float_near(rect.height, expect->expected_h, eps));
+	if (expect->check_mask & SCHK_W) TEST_ASSERT(test_float_near(rect.w, expect->expected_w, eps));
+	if (expect->check_mask & SCHK_H) TEST_ASSERT(test_float_near(rect.h, expect->expected_h, eps));
 	return 0;
 }
 
@@ -90,7 +90,7 @@ static int stack_relation_second_wider(
 	( void ) nodes;
 	( void ) count;
 	( void ) eps;
-	return rects->second.width > rects->first.width ? 0 : 1;
+	return rects->second.w > rects->first.w ? 0 : 1;
 }
 
 static int stack_relation_equal_width(
@@ -99,7 +99,7 @@ static int stack_relation_equal_width(
 	( void ) ctx;
 	( void ) nodes;
 	( void ) count;
-	return test_float_near(rects->first.width, rects->second.width, eps) ? 0 : 1;
+	return test_float_near(rects->first.w, rects->second.w, eps) ? 0 : 1;
 }
 
 static int stack_relation_fixed_vs_flex(
@@ -109,7 +109,7 @@ static int stack_relation_fixed_vs_flex(
 	( void ) nodes;
 	( void ) count;
 	( void ) eps;
-	return rects->first.width >= 85.0f && rects->second.width <= 40.0f && rects->first.width > rects->second.width ? 0
+	return rects->first.w >= 85.0f && rects->second.w <= 40.0f && rects->first.w > rects->second.w ? 0
 	                                                                                                               : 1;
 }
 
@@ -129,7 +129,7 @@ static int stack_relation_baseline_last(
 	( void ) ctx;
 	( void ) nodes;
 	( void ) count;
-	return test_float_near(rects->first.y + rects->first.height, rects->second.y + rects->second.height, eps) ? 0 : 1;
+	return test_float_near(rects->first.y + rects->first.h, rects->second.y + rects->second.h, eps) ? 0 : 1;
 }
 
 static int stack_relation_spacer_x(
@@ -139,7 +139,7 @@ static int stack_relation_spacer_x(
 	if (count < 3) return 0;
 	XentRect spacer_end = {0};
 	TEST_ASSERT(xent_get_layout_rect(ctx, nodes [2], &spacer_end));
-	return rects->second.width > 120.0f && spacer_end.x > rects->second.x ? 0 : 1;
+	return rects->second.w > 120.0f && spacer_end.x > rects->second.x ? 0 : 1;
 }
 
 static int stack_check_relative(XentContext *ctx, XentNodeId const *nodes, uint32_t count, int kind, float eps) {
@@ -168,7 +168,7 @@ static int run_stack_case(StackCase const *spec) {
 	XentNodeId nodes [SWIFT_MAX_CHILD] = {XENT_NODE_INVALID};
 	for (uint32_t i = 0; i < spec->child_count; ++i) nodes [i] = stack_make_child(ctx, root, &spec->children [i]);
 
-	TEST_ASSERT(xent_layout(ctx, root, spec->root_size.width, spec->root_size.height));
+	TEST_ASSERT(xent_layout(ctx, root, spec->root_size.w, spec->root_size.h));
 
 	for (uint32_t i = 0; i < spec->child_count; ++i)
 		TEST_ASSERT(stack_check_rect(ctx, nodes [i], &spec->children [i], spec->eps) == 0);

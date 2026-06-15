@@ -1,7 +1,7 @@
 #include "../xent_internal.h"
 
 static uint32_t xent_config_initial_capacity(XentConfig const *config) {
-	if (!config || config->initial_capacity == 0u) return 256u;
+	if (!config) return 0u;
 	return config->initial_capacity;
 }
 
@@ -28,7 +28,8 @@ static void xent_reset_last_layout(XentContext *ctx) {
 }
 
 static bool xent_init_context_storage(XentContext *ctx) {
-	if (!xent_ensure_node_capacity(ctx, ctx->config.initial_capacity + 1u)) return false;
+	if (ctx->config.initial_capacity > 0u && !xent_ensure_node_capacity(ctx, ctx->config.initial_capacity + 1u))
+		return false;
 	if (!xent_text_cache_init(&ctx->text_cache)) return false;
 	if (!xent_shape_cache_init(&ctx->shape_cache)) return false;
 	return xent_text_backend_mono_init(ctx);
@@ -48,6 +49,12 @@ XentContext *xent_create_context(XentConfig const *config) {
 	return ctx;
 }
 
+bool xent_reserve_nodes(XentContext *ctx, uint32_t capacity) {
+	if (!ctx) return false;
+	if (capacity == UINT32_MAX) return false;
+	return xent_ensure_node_capacity(ctx, capacity + 1u);
+}
+
 static void xent_free_strings(XentContext *ctx) {
 	for (uint32_t i = 0; i < ctx->nodes.capacity; ++i) {
 		free(ctx->nodes.text.content [i]);
@@ -65,23 +72,9 @@ static void xent_free_strings(XentContext *ctx) {
 	}
 }
 
-static void xent_free_payloads(XentContext *ctx) {
-	for (uint32_t i = 0; i < ctx->nodes.capacity; ++i) {
-		if (ctx->nodes.external.payload_destroy [i] && ctx->nodes.external.payload [i])
-			ctx->nodes.external.payload_destroy [i](
-			  ctx->nodes.external.payload [i], ctx->nodes.external.payload_destroy_userdata [i]
-			);
-		ctx->nodes.external.payload [i]                  = NULL;
-		ctx->nodes.external.payload_type [i]             = 0u;
-		ctx->nodes.external.payload_destroy [i]          = NULL;
-		ctx->nodes.external.payload_destroy_userdata [i] = NULL;
-	}
-}
-
 void xent_destroy_context(XentContext *ctx) {
 	if (!ctx) return;
 
-	xent_free_payloads(ctx);
 	xent_free_strings(ctx);
 	xent_text_cache_destroy(&ctx->text_cache);
 	xent_shape_cache_destroy(&ctx->shape_cache);
@@ -101,7 +94,10 @@ void xent_destroy_context(XentContext *ctx) {
 
 	FREE_FIELD(layout.protocol);
 	FREE_FIELD(layout.direction);
+	FREE_FIELD(layout.wrap_content_w);
+	FREE_FIELD(layout.wrap_content_h);
 	FREE_FIELD(layout.dirty_flags);
+	FREE_FIELD(layout.dirty_queued);
 	FREE_FIELD(layout.proposed_w);
 	FREE_FIELD(layout.proposed_h);
 	FREE_FIELD(layout.decided_w);
@@ -147,10 +143,12 @@ void xent_destroy_context(XentContext *ctx) {
 
 	FREE_FIELD(text.content);
 	FREE_FIELD(text.font_size);
+	FREE_FIELD(text.font_weight);
 	FREE_FIELD(text.line_break_policy);
 	FREE_FIELD(text.intrinsic_valid);
 	FREE_FIELD(text.intrinsic_constraint_w);
 	FREE_FIELD(text.intrinsic_font_size);
+	FREE_FIELD(text.intrinsic_font_weight);
 	FREE_FIELD(text.intrinsic_line_break_policy);
 	FREE_FIELD(text.intrinsic_width_mode);
 	FREE_FIELD(text.intrinsic_w);
@@ -169,11 +167,7 @@ void xent_destroy_context(XentContext *ctx) {
 	FREE_FIELD(semantics.value_max);
 
 	FREE_FIELD(external.userdata);
-	FREE_FIELD(external.payload);
-	FREE_FIELD(external.payload_type);
-	FREE_FIELD(external.payload_destroy);
-	FREE_FIELD(external.payload_destroy_userdata);
-	FREE_FIELD(external.control_type);
+	FREE_FIELD(external.tag);
 
 	FREE_FIELD(focus.focusable);
 	FREE_FIELD(focus.tab_index);

@@ -27,8 +27,8 @@ int main(void) {
 	TEST_ASSERT(xent_get_layout_rect(ctx, fixed, &fixed_rect));
 	TEST_ASSERT(xent_get_layout_rect(ctx, fluid, &fluid_rect));
 
-	TEST_ASSERT(test_float_near(fixed_rect.width, 100.0f, 0.01f));
-	TEST_ASSERT(test_float_near(fluid_rect.width, 200.0f, 0.1f));
+	TEST_ASSERT(test_float_near(fixed_rect.w, 100.0f, 0.01f));
+	TEST_ASSERT(test_float_near(fluid_rect.w, 200.0f, 0.1f));
 	TEST_ASSERT(test_float_near(fluid_rect.x, 100.0f, 0.1f));
 
 	xent_destroy_context(ctx);

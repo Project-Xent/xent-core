@@ -34,6 +34,9 @@ typedef struct StackBuffers {
 	StackChildData *children;
 	uint32_t       *priority_order;
 	float          *main_sizes;
+	uint8_t        *ispc_mask;
+	float          *ispc_weights;
+	uint32_t       *ispc_indices;
 } StackBuffers;
 
 typedef struct StackCollectStats {
@@ -85,11 +88,7 @@ static float xent_swiftstack_clampf(float v, float min_v, float max_v) {
 	return v;
 }
 
-#ifdef _WIN32
-static int xent_compare_swiftstack_order_asc(void *context, void const *a, void const *b) {
-#else
 static int xent_compare_swiftstack_order_asc(void const *a, void const *b, void *context) {
-#endif
 	StackChildData const *children = ( StackChildData const * ) context;
 	uint32_t              ia       = *( uint32_t const * ) a;
 	uint32_t              ib       = *( uint32_t const * ) b;
@@ -116,7 +115,7 @@ static void stack_begin_layout(XentLayoutRequest const *request, StackLayoutFram
 	float        origin_y    = request->origin_y;
 	float        width       = 0.0f;
 	float        height      = 0.0f;
-	xent_compute_intrinsic_size(ctx, node, available_w, available_h, &width, &height);
+	xent_decide_node_box(ctx, node, available_w, available_h, request->definite_w, request->definite_h, &width, &height);
 
 	ctx->nodes.layout.proposed_w [node] = available_w;
 	ctx->nodes.layout.proposed_h [node] = available_h;
@@ -149,17 +148,30 @@ static bool stack_alloc_buffers(XentContext *ctx, uint32_t child_count, StackBuf
 	size_t   main_bytes     = sizeof(float) * ( size_t ) child_count;
 	size_t   align_order    = _Alignof(uint32_t);
 	size_t   align_main     = _Alignof(float);
-	size_t   total_bytes    = children_bytes + (align_order - 1u) + order_bytes + (align_main - 1u) + main_bytes;
+	size_t   total_bytes    = children_bytes + order_bytes + main_bytes;
+#if XENT_ISPC_ENABLED
+	size_t   mask_offset    = xent_align_up_size(total_bytes, 1u);
+	size_t   weight_offset  = xent_align_up_size(mask_offset + child_count, align_main);
+	size_t   index_offset   = xent_align_up_size(weight_offset + main_bytes, align_order);
+	total_bytes             = index_offset + order_bytes;
+#endif
 	uint8_t *block          = ( uint8_t * ) xent_scratch_alloc(ctx, total_bytes, _Alignof(StackChildData));
 	if (!block) return false;
 
-	uintptr_t order_addr    = ( uintptr_t ) (block + children_bytes);
-	order_addr              = (order_addr + ( uintptr_t ) (align_order - 1u)) & ~( uintptr_t ) (align_order - 1u);
-	uintptr_t main_addr     = order_addr + order_bytes;
-	main_addr               = (main_addr + ( uintptr_t ) (align_main - 1u)) & ~( uintptr_t ) (align_main - 1u);
 	buffers->children       = ( StackChildData * ) block;
-	buffers->priority_order = ( uint32_t * ) order_addr;
-	buffers->main_sizes     = ( float * ) main_addr;
+	buffers->priority_order = ( uint32_t * ) (block + children_bytes);
+	buffers->main_sizes     = ( float * ) (block + children_bytes + order_bytes);
+#if XENT_ISPC_ENABLED
+	buffers->ispc_mask      = block + mask_offset;
+	buffers->ispc_weights   = ( float * ) (block + weight_offset);
+	buffers->ispc_indices   = ( uint32_t * ) (block + index_offset);
+#else
+	( void ) align_order;
+	( void ) align_main;
+	buffers->ispc_mask    = NULL;
+	buffers->ispc_weights = NULL;
+	buffers->ispc_indices = NULL;
+#endif
 	return true;
 }
 
@@ -258,7 +270,7 @@ static bool
 stack_expand_spacers_ispc(XentContext *ctx, StackBuffers const *buffers, StackCollectStats const *stats, float each) {
 	if (stats->count < 32u) return false;
 
-	uint8_t *spacer_mask = ( uint8_t * ) xent_scratch_alloc(ctx, stats->count, 1u);
+	uint8_t *spacer_mask = buffers->ispc_mask;
 	if (!spacer_mask) return false;
 
 	for (uint32_t i = 0; i < stats->count; ++i) spacer_mask [i] = buffers->children [i].spacer ? 1u : 0u;
@@ -284,8 +296,8 @@ static bool stack_expand_priorities_ispc(
 ) {
 	if (stats->count < 32u) return false;
 
-	uint8_t *prio_mask    = ( uint8_t * ) xent_scratch_alloc(ctx, stats->count, 1u);
-	float   *prio_weights = ( float * ) xent_scratch_alloc(ctx, sizeof(float) * stats->count, _Alignof(float));
+	uint8_t *prio_mask    = buffers->ispc_mask;
+	float   *prio_weights = buffers->ispc_weights;
 	if (!prio_mask || !prio_weights) return false;
 
 	for (uint32_t i = 0; i < stats->count; ++i) {
@@ -328,7 +340,7 @@ stack_collect_reduce_indices(StackBuffers const *buffers, StackPriorityGroup gro
 static bool stack_reduce_members_ispc(XentContext *ctx, StackBuffers const *buffers, StackReduceRequest request) {
 	uint32_t group_size = request.group.end - request.group.start;
 	if (group_size < 16u) return false;
-	uint32_t *indices = ( uint32_t * ) xent_scratch_alloc(ctx, sizeof(uint32_t) * group_size, _Alignof(uint32_t));
+	uint32_t *indices = buffers->ispc_indices;
 	if (!indices) return false;
 	uint32_t count = stack_collect_reduce_indices(buffers, request.group, request.fixed, indices);
 	if (count > 0u)
@@ -366,17 +378,10 @@ static void stack_reduce_members(XentContext *ctx, StackBuffers const *buffers, 
 static void stack_sort_by_priority(XentContext *ctx, StackBuffers const *buffers, uint32_t count) {
 	double sort_start_ms     = xent_now_ms();
 	ctx->profile.sort_calls += 1u;
-#ifdef _WIN32
-	qsort_s(
+	xent_sort_r(
 	  buffers->priority_order, ( size_t ) count, sizeof(uint32_t), xent_compare_swiftstack_order_asc,
 	  ( void * ) buffers->children
 	);
-#else
-	qsort_r(
-	  buffers->priority_order, ( size_t ) count, sizeof(uint32_t), xent_compare_swiftstack_order_asc,
-	  ( void * ) buffers->children
-	);
-#endif
 	ctx->profile.swiftstack_sort_ms += (xent_now_ms() - sort_start_ms);
 }
 
@@ -534,7 +539,7 @@ stack_layout_children(XentContext *ctx, StackLayoutFrame const *frame, StackBuff
 		float          child_main    = buffers->main_sizes [i];
 		StackChildRect rect
 		  = stack_child_rect(&(StackChildRectRequest) {ctx, frame, child, baseline, child_main, cursor});
-		xent_layout_dispatch_node(&(XentLayoutRequest) {ctx, child->node_id, rect.w, rect.h, rect.x, rect.y});
+		xent_layout_dispatch_node(&(XentLayoutRequest) {ctx, child->node_id, rect.w, rect.h, rect.x, rect.y, true, true});
 
 		cursor += child_main + child->margin_trail;
 		if (i + 1u < count) cursor += frame->gap;

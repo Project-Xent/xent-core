@@ -11,10 +11,20 @@ extern "C"
 bool           xent_set_protocol(XentContext *ctx, XentNodeId node, XentProtocol protocol);
 
 bool           xent_set_size(XentContext *ctx, XentNodeId node, XentSize size);
+/** @brief Set one style axis without touching the other (NAN = auto). */
+bool           xent_set_width(XentContext *ctx, XentNodeId node, float width);
+bool           xent_set_height(XentContext *ctx, XentNodeId node, float height);
 bool           xent_set_width_percent(XentContext *ctx, XentNodeId node, float fraction);
 bool           xent_set_height_percent(XentContext *ctx, XentNodeId node, float fraction);
 bool           xent_set_size_percent(XentContext *ctx, XentNodeId node, XentSize fraction);
 bool           xent_set_aspect_ratio(XentContext *ctx, XentNodeId node, float aspect_ratio);
+/**
+ * @brief Size an axis to its children's extent (fit-content / wrap-content) when that
+ * axis is otherwise auto. Opt-in: default is auto = fill available space. Currently
+ * applies to FLEX containers; the wrapped axis should hold children whose size on that
+ * axis is definite or text-derived (a child that itself fills the parent is circular).
+ */
+bool           xent_set_wrap_content(XentContext *ctx, XentNodeId node, bool wrap_width, bool wrap_height);
 bool           xent_set_min_size(XentContext *ctx, XentNodeId node, XentSize size);
 bool           xent_set_max_size(XentContext *ctx, XentNodeId node, XentSize size);
 bool           xent_set_margin(XentContext *ctx, XentNodeId node, XentInsets margin);
@@ -78,7 +88,6 @@ XentLayoutStrategy xent_get_last_layout_strategy(XentContext const *ctx);
 /** Traverse laid-out nodes with accumulated scroll, effective clip, and configurable child order.
  * Returning XENT_TRAVERSAL_SKIP_CHILDREN from enter still invokes leave for the skipped node.
  */
-bool               xent_traverse_layout(XentContext const *ctx, XentNodeId root, XentTraversalOptions const *options);
 
 #ifdef __cplusplus
 }

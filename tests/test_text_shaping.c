@@ -7,7 +7,7 @@ int main(void) {
 	char const          *mixed          = "ab\xE4\xBD\xA0" "d";
 
 	XentShapingResult    summary        = {0};
-	XentTextShapeRequest request        = {mixed, 14.0f, 16.0f, XENT_LINE_BREAK_CHAR_WRAP, XENT_MEASURE_AT_MOST};
+	XentTextShapeRequest request        = {mixed, 14.0f, 0u, 16.0f, XENT_LINE_BREAK_CHAR_WRAP, XENT_MEASURE_AT_MOST};
 	XentTextShapeOutput  summary_output = {0};
 	summary_output.result               = &summary;
 	TEST_ASSERT(xent_shape_text(ctx, &request, &summary_output));

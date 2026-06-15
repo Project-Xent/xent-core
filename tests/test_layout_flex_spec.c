@@ -58,7 +58,7 @@ typedef struct FlexFreezeCase {
 	FlexFreezeChildCase children [FLEX_FREEZE_MAX_CHILD];
 } FlexFreezeCase;
 
-static int has_finite_size(XentSize s) { return isfinite(s.width) || isfinite(s.height); }
+static int has_finite_size(XentSize s) { return isfinite(s.w) || isfinite(s.h); }
 
 static int has_finite_inset_value(XentInsets i) {
 	return isfinite(i.top) || isfinite(i.right) || isfinite(i.bottom) || isfinite(i.left);
@@ -96,8 +96,8 @@ static int flex_check_rect(XentContext *ctx, XentNodeId node, FlexChildCase cons
 	TEST_ASSERT(xent_get_layout_rect(ctx, node, &rect));
 	if (expect->check_mask & FCHK_X) TEST_ASSERT(test_float_near(rect.x, expect->expected_x, eps));
 	if (expect->check_mask & FCHK_Y) TEST_ASSERT(test_float_near(rect.y, expect->expected_y, eps));
-	if (expect->check_mask & FCHK_W) TEST_ASSERT(test_float_near(rect.width, expect->expected_w, eps));
-	if (expect->check_mask & FCHK_H) TEST_ASSERT(test_float_near(rect.height, expect->expected_h, eps));
+	if (expect->check_mask & FCHK_W) TEST_ASSERT(test_float_near(rect.w, expect->expected_w, eps));
+	if (expect->check_mask & FCHK_H) TEST_ASSERT(test_float_near(rect.h, expect->expected_h, eps));
 	return 0;
 }
 
@@ -108,7 +108,7 @@ static int flex_check_relative(XentContext *ctx, XentNodeId a, XentNodeId b, int
 	TEST_ASSERT(xent_get_layout_rect(ctx, a, &ra));
 	TEST_ASSERT(xent_get_layout_rect(ctx, b, &rb));
 	if (kind == FREL_FIRST_BELOW) TEST_ASSERT(ra.y > rb.y);
-	if (kind == FREL_BASELINE_LAST) TEST_ASSERT(test_float_near(ra.y + ra.height, rb.y + rb.height, eps));
+	if (kind == FREL_BASELINE_LAST) TEST_ASSERT(test_float_near(ra.y + ra.h, rb.y + rb.h, eps));
 	return 0;
 }
 
@@ -120,7 +120,7 @@ static int run_flex_case(FlexCase const *spec) {
 	XentNodeId nodes [FLEX_MAX_CHILD] = {XENT_NODE_INVALID};
 	for (uint32_t i = 0; i < spec->child_count; ++i) nodes [i] = flex_make_child(ctx, root, &spec->children [i]);
 
-	TEST_ASSERT(xent_layout(ctx, root, spec->root_size.width, spec->root_size.height));
+	TEST_ASSERT(xent_layout(ctx, root, spec->root_size.w, spec->root_size.h));
 
 	for (uint32_t i = 0; i < spec->child_count; ++i)
 		TEST_ASSERT(flex_check_rect(ctx, nodes [i], &spec->children [i], spec->eps) == 0);
@@ -130,10 +130,10 @@ static int run_flex_case(FlexCase const *spec) {
 
 	if (isfinite(spec->relayout_first_basis)) {
 		xent_set_flex_basis(ctx, nodes [0], spec->relayout_first_basis);
-		TEST_ASSERT(xent_layout(ctx, root, spec->root_size.width, spec->root_size.height));
+		TEST_ASSERT(xent_layout(ctx, root, spec->root_size.w, spec->root_size.h));
 		XentRect rect = {0};
 		TEST_ASSERT(xent_get_layout_rect(ctx, nodes [0], &rect));
-		TEST_ASSERT(test_float_near(rect.width, spec->relayout_first_w, spec->eps));
+		TEST_ASSERT(test_float_near(rect.w, spec->relayout_first_w, spec->eps));
 	}
 
 	xent_destroy_context(ctx);
@@ -357,7 +357,7 @@ static int run_flex_freeze_case(FlexFreezeCase const *spec) {
 	for (uint32_t i = 0u; i < spec->child_count; ++i) {
 		XentRect rect = {0};
 		TEST_ASSERT(xent_get_layout_rect(ctx, nodes [i], &rect));
-		TEST_ASSERT(test_float_near(rect.width, spec->children [i].expected_w, 0.5f));
+		TEST_ASSERT(test_float_near(rect.w, spec->children [i].expected_w, 0.5f));
 	}
 
 	xent_destroy_context(ctx);

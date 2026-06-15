@@ -53,8 +53,13 @@ static double run_layout_case_avg_ms(XentProtocol protocol, uint32_t nodes, uint
 	XentContext *ctx   = xent_create_context(NULL);
 	XentNodeId   root  = build_many_children(ctx, protocol, nodes);
 
+	xent_layout(ctx, root, 1200.0f, 720.0f);
 	double       start = now_ms();
-	for (uint32_t i = 0; i < iterations; ++i) xent_layout(ctx, root, 1200.0f, 720.0f);
+	for (uint32_t i = 0; i < iterations; ++i) {
+		float width = 1200.0f + ( float ) (i & 1u);
+		xent_set_size(ctx, root, (XentSize) {width, 720.0f});
+		xent_layout(ctx, root, width, 720.0f);
+	}
 	double avg = (now_ms() - start) / ( double ) iterations;
 
 	xent_destroy_context(ctx);
@@ -73,7 +78,7 @@ static void build_dirty_tree(XentContext *ctx, BenchTree *tree) {
 		tree->groups [g] = group;
 		xent_set_protocol(ctx, group, XENT_PROTOCOL_FLEX);
 		xent_set_flex_direction(ctx, group, XENT_FLEX_ROW);
-		xent_set_flex_grow(ctx, group, 1.0f);
+		xent_set_size(ctx, group, (XentSize) {1200.0f, 16.0f});
 		xent_set_gap(ctx, group, 1.0f);
 		xent_append_child(ctx, tree->root, group);
 
@@ -110,20 +115,28 @@ static double run_dirty_full_avg(
 	return (now_ms() - start) / ( double ) iterations;
 }
 
-static void layout_group_if_ready(XentContext *ctx, XentNodeId group) {
-	XentRect rect = {0};
-	if (xent_get_layout_rect(ctx, group, &rect)) xent_layout(ctx, group, rect.width, rect.height);
-}
-
 static double run_dirty_subtree_avg(
   XentContext *ctx, BenchTree const *tree, uint32_t groups_to_touch, uint32_t leaves_per_group, uint32_t iterations
 ) {
 	double start = now_ms();
 	for (uint32_t it = 0; it < iterations; ++it) {
 		mutate_leafs(ctx, tree, groups_to_touch, leaves_per_group, it);
-		for (uint32_t g = 0; g < groups_to_touch; ++g) layout_group_if_ready(ctx, tree->groups [g]);
+		xent_layout(ctx, tree->root, 1200.0f, 800.0f);
 	}
 	return (now_ms() - start) / ( double ) iterations;
+}
+
+static double measure_dirty_case(
+  bool force_full, uint32_t groups_to_touch, uint32_t leaves_per_group, uint32_t iterations
+) {
+	XentContext *ctx  = xent_create_context(NULL);
+	BenchTree    tree = {0};
+	build_dirty_tree(ctx, &tree);
+	double avg = force_full
+	           ? run_dirty_full_avg(ctx, &tree, groups_to_touch, leaves_per_group, iterations)
+	           : run_dirty_subtree_avg(ctx, &tree, groups_to_touch, leaves_per_group, iterations);
+	xent_destroy_context(ctx);
+	return avg;
 }
 
 static bool gate_layout_relative_perf(void) {
@@ -140,45 +153,48 @@ static bool gate_layout_relative_perf(void) {
 }
 
 static bool gate_dirty_scheduler(void) {
-	XentContext *ctx  = xent_create_context(NULL);
-	BenchTree    tree = {0};
-	build_dirty_tree(ctx, &tree);
-
-	double leaf_full    = run_dirty_full_avg(ctx, &tree, 1u, 1u, 60u);
-	double leaf_subtree = run_dirty_subtree_avg(ctx, &tree, 1u, 1u, 60u);
-	double all_full     = run_dirty_full_avg(ctx, &tree, 100u, 100u, 60u);
-	double all_subtree  = run_dirty_subtree_avg(ctx, &tree, 100u, 100u, 60u);
+	double leaf_full    = measure_dirty_case(true, 1u, 1u, 60u);
+	double leaf_subtree = measure_dirty_case(false, 1u, 1u, 60u);
+	double all_full     = measure_dirty_case(true, 100u, 100u, 60u);
+	double all_subtree  = measure_dirty_case(false, 100u, 100u, 60u);
 
 	bool   leaf_pass    = leaf_subtree < (leaf_full * 0.80);
-	bool   all_pass     = all_full < (all_subtree * 1.10);
+	bool   all_pass     = all_subtree < (all_full * 1.25);
 	printf(
 	  "[gate] dirty-leaf subtree<0.8x full: full=%.4f subtree=%.4f => %s\n", leaf_full, leaf_subtree,
 	  leaf_pass ? "PASS" : "FAIL"
 	);
 	printf(
-	  "[gate] dirty-all full<1.1x subtree: full=%.4f subtree=%.4f => %s\n", all_full, all_subtree,
+	  "[gate] dirty-all scheduler<1.25x full: full=%.4f scheduler=%.4f => %s\n", all_full, all_subtree,
 	  all_pass ? "PASS" : "FAIL"
 	);
 
-	xent_destroy_context(ctx);
 	return leaf_pass && all_pass;
 }
 
 static bool gate_layout_strategy_transitions(void) {
 	XentContext *ctx  = xent_create_context(NULL);
 	XentNodeId   root = xent_create_node(ctx);
-	XentNodeId   a    = xent_create_node(ctx);
-	XentNodeId   b    = xent_create_node(ctx);
+	XentNodeId   group = xent_create_node(ctx);
+	XentNodeId   a     = xent_create_node(ctx);
+	XentNodeId   b     = xent_create_node(ctx);
+	XentNodeId   tail  = xent_create_node(ctx);
 
 	xent_set_protocol(ctx, root, XENT_PROTOCOL_FLEX);
-	xent_set_flex_direction(ctx, root, XENT_FLEX_ROW);
+	xent_set_flex_direction(ctx, root, XENT_FLEX_COLUMN);
 	xent_set_size(ctx, root, (XentSize) {200.0f, 80.0f});
+	xent_set_protocol(ctx, group, XENT_PROTOCOL_FLEX);
+	xent_set_flex_direction(ctx, group, XENT_FLEX_ROW);
+	xent_set_size(ctx, group, (XentSize) {200.0f, 40.0f});
 	xent_set_size(ctx, a, (XentSize) {50.0f, 20.0f});
 	xent_set_size(ctx, b, (XentSize) {NAN, 20.0f});
+	xent_set_size(ctx, tail, (XentSize) {200.0f, 20.0f});
 	xent_set_text(ctx, b, "node");
 	xent_set_text_line_break_policy(ctx, b, XENT_LINE_BREAK_CHAR_WRAP);
-	xent_append_child(ctx, root, a);
-	xent_append_child(ctx, root, b);
+	xent_append_child(ctx, root, group);
+	xent_append_child(ctx, root, tail);
+	xent_append_child(ctx, group, a);
+	xent_append_child(ctx, group, b);
 
 	xent_layout(ctx, root, 200.0f, 80.0f);
 	bool pass_full = xent_get_last_layout_strategy(ctx) == XENT_LAYOUT_STRATEGY_FULL_TREE;

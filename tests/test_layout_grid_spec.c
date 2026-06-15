@@ -76,8 +76,8 @@ static int grid_check_rect(XentContext *ctx, XentNodeId node, GridChildCase cons
 	TEST_ASSERT(xent_get_layout_rect(ctx, node, &rect));
 	if (expect->check_mask & GCHK_X) TEST_ASSERT(test_float_near(rect.x, expect->expected_x, GRID_EPS));
 	if (expect->check_mask & GCHK_Y) TEST_ASSERT(test_float_near(rect.y, expect->expected_y, GRID_EPS));
-	if (expect->check_mask & GCHK_W) TEST_ASSERT(test_float_near(rect.width, expect->expected_w, GRID_EPS));
-	if (expect->check_mask & GCHK_H) TEST_ASSERT(test_float_near(rect.height, expect->expected_h, GRID_EPS));
+	if (expect->check_mask & GCHK_W) TEST_ASSERT(test_float_near(rect.w, expect->expected_w, GRID_EPS));
+	if (expect->check_mask & GCHK_H) TEST_ASSERT(test_float_near(rect.h, expect->expected_h, GRID_EPS));
 	return 0;
 }
 
@@ -89,7 +89,7 @@ static int run_grid_case(GridCase const *spec) {
 	XentNodeId nodes [GRID_MAX_CHILD]    = {XENT_NODE_INVALID};
 	for (uint32_t i = 0; i < spec->child_count; ++i) nodes [i] = grid_make_cell(ctx, grid, &spec->children [i]);
 
-	TEST_ASSERT(xent_layout(ctx, grid, spec->size.width, spec->size.height));
+	TEST_ASSERT(xent_layout(ctx, grid, spec->size.w, spec->size.h));
 
 	for (uint32_t i = 0; i < spec->child_count; ++i)
 		TEST_ASSERT(grid_check_rect(ctx, nodes [i], &spec->children [i]) == 0);
@@ -324,11 +324,11 @@ static int test_grid_inside_flex(void) {
 	TEST_ASSERT(xent_get_layout_rect(ctx, grid_b, &rb));
 	TEST_ASSERT(xent_get_layout_rect(ctx, gc0, &rg0));
 	TEST_ASSERT(xent_get_layout_rect(ctx, gc1, &rg1));
-	TEST_ASSERT(test_float_near(ra.width, 200.0f, GRID_EPS));
-	TEST_ASSERT(test_float_near(rb.width, 400.0f, GRID_EPS));
+	TEST_ASSERT(test_float_near(ra.w, 200.0f, GRID_EPS));
+	TEST_ASSERT(test_float_near(rb.w, 400.0f, GRID_EPS));
 	TEST_ASSERT(test_float_near(rb.x, 200.0f, GRID_EPS));
-	TEST_ASSERT(test_float_near(rg0.width, 300.0f, GRID_EPS));
-	TEST_ASSERT(test_float_near(rg1.width, 100.0f, GRID_EPS));
+	TEST_ASSERT(test_float_near(rg0.w, 300.0f, GRID_EPS));
+	TEST_ASSERT(test_float_near(rg1.w, 100.0f, GRID_EPS));
 
 	xent_destroy_context(ctx);
 	return 0;

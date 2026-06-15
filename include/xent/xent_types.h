@@ -73,6 +73,7 @@ typedef enum XentFlexAlignContent
 	XENT_FLEX_ALIGN_CONTENT_SPACE_BETWEEN = 3,
 	XENT_FLEX_ALIGN_CONTENT_SPACE_AROUND  = 4,
 	XENT_FLEX_ALIGN_CONTENT_SPACE_EVENLY  = 5,
+	XENT_FLEX_ALIGN_CONTENT_STRETCH       = 6, /**< grow each line's cross size to fill free space */
 } XentFlexAlignContent;
 
 typedef enum XentAxis
@@ -105,37 +106,6 @@ typedef enum XentSemanticRole
 	XENT_SEMANTIC_CUSTOM,
 } XentSemanticRole;
 
-typedef enum XentControlType
-{
-	XENT_CONTROL_CONTAINER = 0,
-	XENT_CONTROL_TEXT,
-	XENT_CONTROL_BUTTON,
-	XENT_CONTROL_TOGGLE_BUTTON,
-	XENT_CONTROL_CHECKBOX,
-	XENT_CONTROL_RADIO,
-	XENT_CONTROL_SWITCH,
-	XENT_CONTROL_SLIDER,
-	XENT_CONTROL_TEXT_INPUT,
-	XENT_CONTROL_SCROLL,
-	XENT_CONTROL_IMAGE,
-	XENT_CONTROL_PROGRESS,
-	XENT_CONTROL_LIST,
-	XENT_CONTROL_TAB,
-	XENT_CONTROL_CARD,
-	XENT_CONTROL_DIVIDER,
-	XENT_CONTROL_CANVAS,
-	XENT_CONTROL_PASSWORD_BOX,
-	XENT_CONTROL_NUMBER_BOX,
-	XENT_CONTROL_HYPERLINK,
-	XENT_CONTROL_REPEAT_BUTTON,
-	XENT_CONTROL_PROGRESS_RING,
-	XENT_CONTROL_INFO_BADGE,
-	XENT_CONTROL_TOOLTIP,
-	XENT_CONTROL_FLYOUT,
-	XENT_CONTROL_MENU_FLYOUT,
-	XENT_CONTROL_CUSTOM,
-} XentControlType;
-
 typedef enum XentDirtyFlags
 {
 	XENT_DIRTY_NONE    = 0,
@@ -160,21 +130,22 @@ typedef enum XentLineBreakPolicy
 
 typedef enum XentMeasureMode
 {
-	XENT_MEASURE_UNDEFINED = 0,
-	XENT_MEASURE_AT_MOST   = 1,
-	XENT_MEASURE_EXACTLY   = 2,
+	XENT_MEASURE_UNDEFINED   = 0,
+	XENT_MEASURE_AT_MOST     = 1,
+	XENT_MEASURE_EXACTLY     = 2,
+	XENT_MEASURE_MIN_CONTENT = 3, /**< break at every opportunity; width = longest unbreakable run */
 } XentMeasureMode;
 
 typedef struct XentRect {
 	float x;
 	float y;
-	float width;
-	float height;
+	float w;
+	float h;
 } XentRect;
 
 typedef struct XentSize {
-	float width;
-	float height;
+	float w;
+	float h;
 } XentSize;
 
 typedef struct XentPoint {
@@ -210,53 +181,10 @@ typedef enum XentNodeLifecycleEvent
 	XENT_NODE_EVENT_REPARENT = 2,
 } XentNodeLifecycleEvent;
 
-typedef void (*XentNodePayloadDestroyFn)(void *payload, void *userdata);
-
 typedef void (*XentNodeLifecycleFn)(
   XentContext *ctx, XentNodeId node, XentNodeLifecycleEvent event, XentNodeId old_parent, XentNodeId new_parent,
   void *userdata
 );
-
-typedef struct XentTraversalEffects {
-	bool  clips_children;
-	float child_scroll_x;
-	float child_scroll_y;
-} XentTraversalEffects;
-
-typedef struct XentTraversalVisit {
-	XentNodeId           node;
-	XentNodeId           parent;
-	XentRect             layout_rect;
-	XentRect             screen_rect;
-	XentRect             effective_clip;
-	float                accumulated_scroll_x;
-	float                accumulated_scroll_y;
-	uint32_t             depth;
-	XentTraversalEffects effects;
-} XentTraversalVisit;
-
-typedef enum XentTraversalAction
-{
-	XENT_TRAVERSAL_CONTINUE      = 0,
-	XENT_TRAVERSAL_SKIP_CHILDREN = 1,
-	XENT_TRAVERSAL_STOP          = 2,
-} XentTraversalAction;
-
-typedef bool (*XentTraversalEffectsFn)(
-  XentTraversalVisit const *visit, XentTraversalEffects *out_effects, void *userdata
-);
-
-typedef XentTraversalAction (*XentTraversalVisitFn)(XentTraversalVisit const *visit, void *userdata);
-
-typedef struct XentTraversalOptions {
-	XentChildOrder         child_order;
-	bool                   cull_to_clip;
-	XentTraversalEffectsFn effects;
-	void                  *effects_userdata;
-	XentTraversalVisitFn   enter;
-	XentTraversalVisitFn   leave;
-	void                  *visit_userdata;
-} XentTraversalOptions;
 
 typedef struct XentTextMetrics {
 	float    width;
@@ -271,6 +199,7 @@ typedef struct XentTextMetrics {
 typedef struct XentTextMeasureRequest {
 	char const         *text;
 	float               font_size;
+	uint16_t            font_weight; /**< CSS scale 100..900; 0 = default (400). */
 	float               width_constraint;
 	XentLineBreakPolicy line_break_policy;
 	XentMeasureMode     width_mode;
@@ -279,6 +208,7 @@ typedef struct XentTextMeasureRequest {
 typedef struct XentTextShapeRequest {
 	char const         *text;
 	float               font_size;
+	uint16_t            font_weight; /**< CSS scale 100..900; 0 = default (400). */
 	float               width_constraint;
 	XentLineBreakPolicy line_break_policy;
 	XentMeasureMode     width_mode;

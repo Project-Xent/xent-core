@@ -42,13 +42,23 @@ static void run_case(char const *name, XentProtocol protocol, uint32_t nodes) {
 	XentNodeId   root       = build_many_children(ctx, protocol, nodes);
 
 	int const    iterations = 20;
+	xent_layout(ctx, root, 1200.0f, 720.0f);
 	xent_profile_reset(ctx);
-	double start = now_ms();
-	for (int i = 0; i < iterations; ++i) xent_layout(ctx, root, 1200.0f, 720.0f);
-	double elapsed = now_ms() - start;
+	double full_start = now_ms();
+	for (int i = 0; i < iterations; ++i) {
+		float width = 1200.0f + ( float ) (i & 1);
+		xent_set_size(ctx, root, (XentSize) {width, 720.0f});
+		xent_layout(ctx, root, width, 720.0f);
+	}
+	double full_elapsed = now_ms() - full_start;
+
+	double cache_start = now_ms();
+	for (int i = 0; i < iterations; ++i) xent_layout(ctx, root, 1201.0f, 720.0f);
+	double cache_elapsed = now_ms() - cache_start;
+
 	printf(
-	  "%s nodes=%u iterations=%d total_ms=%.3f avg_ms=%.3f\n", name, nodes, iterations, elapsed,
-	  elapsed / ( double ) iterations
+	  "%s nodes=%u iterations=%d full_total_ms=%.3f full_avg_ms=%.3f cache_skip_avg_ms=%.6f\n", name, nodes,
+	  iterations, full_elapsed, full_elapsed / ( double ) iterations, cache_elapsed / ( double ) iterations
 	);
 
 	XentProfileStats p = xent_profile_get(ctx);

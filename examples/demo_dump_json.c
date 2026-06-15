@@ -1,6 +1,7 @@
 #include <math.h>
 #include <stdio.h>
 
+#include "xent/xent_cli.h"
 #include "xent/xent.h"
 
 int main(int argc, char **argv) {
@@ -39,7 +40,13 @@ int main(int argc, char **argv) {
 
 	FILE *out = stdout;
 	if (argc > 1) {
-		out = fopen(argv [1], "wb");
+		FILE *file = NULL;
+#if defined(_MSC_VER)
+		if (fopen_s(&file, argv [1], "wb") != 0) file = NULL;
+#else
+		file = fopen(argv [1], "wb");
+#endif
+		out = file;
 		if (!out) {
 			xent_destroy_context(ctx);
 			return 2;

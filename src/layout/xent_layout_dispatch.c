@@ -25,23 +25,35 @@ void xent_layout_dispatch_node(XentLayoutRequest const *request) {
 
 static bool xent_is_layout_dirty(uint32_t flags) { return (flags & (XENT_DIRTY_LAYOUT | XENT_DIRTY_SELF)) != 0u; }
 
+static bool xent_is_flow_layout_container(XentContext const *ctx, XentNodeId node) {
+	XentProtocol protocol = ( XentProtocol ) ctx->nodes.layout.protocol [node];
+	return protocol == XENT_PROTOCOL_FLEX || protocol == XENT_PROTOCOL_SWIFTSTACK || protocol == XENT_PROTOCOL_GRID;
+}
+
 static bool xent_is_auto_sized_parent(XentContext const *ctx, XentNodeId node) {
 	return (isnan(ctx->nodes.layout.style_w [node]) && isnan(ctx->nodes.layout.style_w_percent [node]))
 	    || (isnan(ctx->nodes.layout.style_h [node]) && isnan(ctx->nodes.layout.style_h_percent [node]));
 }
 
 static bool xent_can_promote_dirty_root(XentContext const *ctx, XentNodeId node) {
-	XentProtocol protocol = ( XentProtocol ) ctx->nodes.layout.protocol [node];
-	return (protocol == XENT_PROTOCOL_FLEX || protocol == XENT_PROTOCOL_SWIFTSTACK || protocol == XENT_PROTOCOL_GRID)
-	    && xent_is_auto_sized_parent(ctx, node);
+	return xent_is_flow_layout_container(ctx, node) && xent_is_auto_sized_parent(ctx, node);
 }
 
 static XentNodeId xent_promote_dirty_root(XentContext const *ctx, XentNodeId dirty_node, XentNodeId root) {
+	/* A node's geometry is decided by its PARENT's layout pass (absolute placement,
+	 * flex distribution), and xent_run_dirty_plan back-derives each recompute root's
+	 * origin as abs_x - abs_pos_x — valid only while that root's own placement
+	 * inputs are unchanged. The dirty node itself can therefore never be its own
+	 * recompute root: when its abs_pos/size changed, the stale abs_x cancels the
+	 * new offset and the node is re-laid in place (frozen layout animations).
+	 * Always hop to the parent first; the flow climb below is unchanged. */
 	XentNodeId candidate = dirty_node;
-	for (XentNodeId parent = ctx->nodes.topology.parent [candidate]; parent != XENT_NODE_INVALID && parent != root;
-	  parent               = ctx->nodes.topology.parent [candidate])
-	{
-		if (!xent_can_promote_dirty_root(ctx, parent)) break;
+	XentNodeId parent    = ctx->nodes.topology.parent [dirty_node];
+	if (parent != XENT_NODE_INVALID) candidate = parent;
+
+	while (candidate != dirty_node && candidate != root && xent_can_promote_dirty_root(ctx, candidate)) {
+		parent = ctx->nodes.topology.parent [candidate];
+		if (parent == XENT_NODE_INVALID || !xent_is_flow_layout_container(ctx, parent)) break;
 		candidate = parent;
 	}
 	return candidate;
@@ -154,11 +166,14 @@ static uint32_t xent_count_dirty_nodes(XentContext *ctx, XentNodeId root) {
 
 static bool xent_alloc_dirty_plan(XentContext *ctx, XentDirtyPlan *plan, uint32_t total_nodes) {
 	size_t node_bytes  = sizeof(XentNodeId) * ( size_t ) plan->direct_count;
-	plan->direct_dirty = ( XentNodeId * ) xent_scratch_alloc(ctx, node_bytes, _Alignof(XentNodeId));
-	plan->roots        = ( XentNodeId * ) xent_scratch_alloc(ctx, node_bytes, _Alignof(XentNodeId));
-	plan->stack
-	  = ( XentNodeId * ) xent_scratch_alloc(ctx, sizeof(XentNodeId) * ( size_t ) total_nodes, _Alignof(XentNodeId));
-	return plan->direct_dirty && plan->roots && plan->stack;
+	size_t stack_bytes = sizeof(XentNodeId) * ( size_t ) total_nodes;
+	uint8_t *block     = ( uint8_t * ) xent_scratch_alloc(ctx, node_bytes + node_bytes + stack_bytes, _Alignof(XentNodeId));
+	if (!block) return false;
+
+	plan->direct_dirty = ( XentNodeId * ) block;
+	plan->roots        = ( XentNodeId * ) (block + node_bytes);
+	plan->stack        = ( XentNodeId * ) (block + node_bytes + node_bytes);
+	return true;
 }
 
 static void xent_collect_dirty_nodes(XentContext const *ctx, XentNodeId root, XentDirtyPlan *plan) {
@@ -220,8 +235,15 @@ static void xent_run_dirty_plan(XentContext *ctx, XentDirtyPlan const *plan) {
 		XentNodeId root     = plan->roots [i];
 		float      origin_x = ctx->nodes.layout.abs_x [root] - ctx->nodes.layout.abs_pos_x [root];
 		float      origin_y = ctx->nodes.layout.abs_y [root] - ctx->nodes.layout.abs_pos_y [root];
+		/* The root's decided size came from its parent's layout pass, which is
+		 * unchanged here. Honor it as definite when that parent is a flow
+		 * container (which sizes its children) so a wrap-content root does not
+		 * re-derive a different max-content size than the full pass produced. */
+		XentNodeId parent      = ctx->nodes.topology.parent [root];
+		bool       flow_parent = parent != XENT_NODE_INVALID && xent_is_flow_layout_container(ctx, parent);
 		xent_layout_dispatch_node(&(XentLayoutRequest) {
-		  ctx, root, ctx->nodes.layout.decided_w [root], ctx->nodes.layout.decided_h [root], origin_x, origin_y});
+		  ctx, root, ctx->nodes.layout.decided_w [root], ctx->nodes.layout.decided_h [root], origin_x, origin_y,
+		  flow_parent, flow_parent});
 	}
 }
 
@@ -259,6 +281,23 @@ static void xent_run_selected_layout(
 		  ctx, inputs->root, inputs->available_width, inputs->available_height, 0.0f, 0.0f});
 }
 
+static bool xent_prepare_layout_work_order(
+  XentContext *ctx, XentNodeId root, XentLayoutPlanInputs *inputs, XentLayoutStrategy strategy,
+  XentDirtyPlan const *dirty_plan
+) {
+	if (strategy == XENT_LAYOUT_STRATEGY_FULL_TREE) {
+		if (!xent_build_preorder(ctx, root)) return false;
+		inputs->total_nodes = ctx->work_count;
+		return true;
+	}
+
+	if (strategy == XENT_LAYOUT_STRATEGY_DIRTY_SUBTREE)
+		return xent_build_preorder_roots(ctx, dirty_plan->roots, dirty_plan->root_count);
+
+	ctx->work_count = 0u;
+	return true;
+}
+
 bool xent_layout(XentContext *ctx, XentNodeId root, float available_width, float available_height) {
 	if (!xent_is_valid_node(ctx, root)) return false;
 
@@ -270,15 +309,7 @@ bool xent_layout(XentContext *ctx, XentNodeId root, float available_width, float
 	XentDirtyPlan      dirty_plan = {0};
 	XentLayoutStrategy strategy   = xent_select_layout_strategy(ctx, &inputs, &dirty_plan);
 
-	if (strategy == XENT_LAYOUT_STRATEGY_FULL_TREE) {
-		if (!xent_build_preorder(ctx, root)) return false;
-		inputs.total_nodes = ctx->work_count;
-	}
-	else if (strategy == XENT_LAYOUT_STRATEGY_DIRTY_SUBTREE) {
-		if (!xent_build_preorder_roots(ctx, dirty_plan.roots, dirty_plan.root_count)) return false;
-	}
-	else { ctx->work_count = 0u; }
-
+	if (!xent_prepare_layout_work_order(ctx, root, &inputs, strategy, &dirty_plan)) return false;
 	xent_run_selected_layout(ctx, &inputs, strategy, &dirty_plan);
 
 	if (ctx->work_count > 0u) xent_batch_quantize_layout(ctx);

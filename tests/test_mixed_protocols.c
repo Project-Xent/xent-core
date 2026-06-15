@@ -42,8 +42,8 @@ int main(void) {
 	TEST_ASSERT(xent_get_layout_rect(ctx, right, &right_rect));
 	TEST_ASSERT(xent_get_layout_rect(ctx, right_tail, &tail_rect));
 
-	TEST_ASSERT(left_rect.width > 0.0f);
-	TEST_ASSERT(right_rect.x + 0.01f >= left_rect.x + left_rect.width);
+	TEST_ASSERT(left_rect.w > 0.0f);
+	TEST_ASSERT(right_rect.x + 0.01f >= left_rect.x + left_rect.w);
 	TEST_ASSERT(tail_rect.x > right_rect.x);
 
 	xent_destroy_context(ctx);

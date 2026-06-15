@@ -43,49 +43,9 @@ bool xent_set_node_lifecycle_callback(XentContext *ctx, XentNodeLifecycleFn call
 	return true;
 }
 
-bool xent_set_node_payload(
-  XentContext *ctx, XentNodeId node, uint32_t payload_type, void *payload, XentNodePayloadDestroyFn destroy,
-  void *destroy_userdata
-) {
-	if (!xent_is_valid_node(ctx, node)) return false;
-	if (ctx->nodes.external.payload_destroy [node]
-		&& ctx->nodes.external.payload [node]
-		&& ctx->nodes.external.payload [node] != payload)
-		ctx->nodes.external.payload_destroy [node](
-		  ctx->nodes.external.payload [node], ctx->nodes.external.payload_destroy_userdata [node]
-		);
-	ctx->nodes.external.payload [node]                  = payload;
-	ctx->nodes.external.payload_type [node]             = payload ? payload_type : 0u;
-	ctx->nodes.external.payload_destroy [node]          = destroy;
-	ctx->nodes.external.payload_destroy_userdata [node] = destroy_userdata;
-	ctx->nodes.external.userdata [node]                 = payload;
-	return true;
-}
 
-bool xent_clear_node_payload(XentContext *ctx, XentNodeId node) {
-	if (!xent_is_valid_node(ctx, node)) return false;
-	if (ctx->nodes.external.payload_destroy [node] && ctx->nodes.external.payload [node])
-		ctx->nodes.external.payload_destroy [node](
-		  ctx->nodes.external.payload [node], ctx->nodes.external.payload_destroy_userdata [node]
-		);
-	ctx->nodes.external.payload [node]                  = NULL;
-	ctx->nodes.external.payload_type [node]             = 0u;
-	ctx->nodes.external.payload_destroy [node]          = NULL;
-	ctx->nodes.external.payload_destroy_userdata [node] = NULL;
-	ctx->nodes.external.userdata [node]                 = NULL;
-	return true;
-}
 
-void *xent_get_node_payload(XentContext const *ctx, XentNodeId node, uint32_t expected_payload_type) {
-	if (!xent_is_valid_node(ctx, node)) return NULL;
-	if (expected_payload_type && ctx->nodes.external.payload_type [node] != expected_payload_type) return NULL;
-	return ctx->nodes.external.payload [node];
-}
 
-uint32_t xent_get_node_payload_type(XentContext const *ctx, XentNodeId node) {
-	if (!xent_is_valid_node(ctx, node)) return 0u;
-	return ctx->nodes.external.payload_type [node];
-}
 
 bool xent_set_userdata(XentContext *ctx, XentNodeId node, void *data) {
 	if (!xent_is_valid_node(ctx, node)) return false;
@@ -98,15 +58,15 @@ void *xent_get_userdata(XentContext const *ctx, XentNodeId node) {
 	return ctx->nodes.external.userdata [node];
 }
 
-bool xent_set_control_type(XentContext *ctx, XentNodeId node, XentControlType type) {
+bool xent_set_node_tag(XentContext *ctx, XentNodeId node, uint8_t tag) {
 	if (!xent_is_valid_node(ctx, node)) return false;
-	ctx->nodes.external.control_type [node] = ( uint8_t ) type;
+	ctx->nodes.external.tag [node] = tag;
 	return true;
 }
 
-XentControlType xent_get_control_type(XentContext const *ctx, XentNodeId node) {
-	if (!xent_is_valid_node(ctx, node)) return XENT_CONTROL_CONTAINER;
-	return ( XentControlType ) ctx->nodes.external.control_type [node];
+uint8_t xent_get_node_tag(XentContext const *ctx, XentNodeId node) {
+	if (!xent_is_valid_node(ctx, node)) return 0u;
+	return ctx->nodes.external.tag [node];
 }
 
 bool xent_set_semantic_checked(XentContext *ctx, XentNodeId node, uint8_t state) {

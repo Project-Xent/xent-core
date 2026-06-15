@@ -5,7 +5,7 @@ int main(void) {
 	TEST_ASSERT(ctx != NULL);
 
 	XentTextMetrics        m       = {0};
-	XentTextMeasureRequest measure = {"ab cd ef", 14.0f, 40.0f, XENT_LINE_BREAK_NO_WRAP, XENT_MEASURE_AT_MOST};
+	XentTextMeasureRequest measure = {"ab cd ef", 14.0f, 0u, 40.0f, XENT_LINE_BREAK_NO_WRAP, XENT_MEASURE_AT_MOST};
 	TEST_ASSERT(xent_measure_text(ctx, &measure, &m));
 	TEST_ASSERT(m.line_count == 1u);
 	TEST_ASSERT(test_float_near(m.width, 64.0f, 0.001f));
@@ -30,7 +30,7 @@ int main(void) {
 
 	XentShapedLine       lines_char [8] = {0};
 	XentShapingResult    shaped_char    = {0};
-	XentTextShapeRequest shape          = {"ab cd ef", 14.0f, 40.0f, XENT_LINE_BREAK_CHAR_WRAP, XENT_MEASURE_AT_MOST};
+	XentTextShapeRequest shape = {"ab cd ef", 14.0f, 0u, 40.0f, XENT_LINE_BREAK_CHAR_WRAP, XENT_MEASURE_AT_MOST};
 	XentTextShapeOutput  shape_char_output = {NULL, 0u, NULL, 0u, lines_char, 8u, &shaped_char};
 	TEST_ASSERT(xent_shape_text(ctx, &shape, &shape_char_output));
 

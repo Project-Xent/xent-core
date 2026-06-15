@@ -45,8 +45,8 @@ static bool xent_get_resolved_layout_insets(
 
 static bool xent_set_layout_size_fields(XentContext *ctx, XentNodeId node, XentSize size, float *width, float *height) {
 	if (!xent_is_valid_node(ctx, node)) return false;
-	*width  = size.width;
-	*height = size.height;
+	*width  = size.w;
+	*height = size.h;
 	if (width == &ctx->nodes.layout.style_w [node]) ctx->nodes.layout.style_w_percent [node] = NAN;
 	if (height == &ctx->nodes.layout.style_h [node]) ctx->nodes.layout.style_h_percent [node] = NAN;
 	xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
@@ -138,6 +138,22 @@ bool xent_set_size(XentContext *ctx, XentNodeId node, XentSize size) {
 	);
 }
 
+bool xent_set_width(XentContext *ctx, XentNodeId node, float width) {
+	if (!xent_is_valid_node(ctx, node)) return false;
+	ctx->nodes.layout.style_w [node]         = width;
+	ctx->nodes.layout.style_w_percent [node] = NAN;
+	xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
+	return true;
+}
+
+bool xent_set_height(XentContext *ctx, XentNodeId node, float height) {
+	if (!xent_is_valid_node(ctx, node)) return false;
+	ctx->nodes.layout.style_h [node]         = height;
+	ctx->nodes.layout.style_h_percent [node] = NAN;
+	xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
+	return true;
+}
+
 bool xent_set_width_percent(XentContext *ctx, XentNodeId node, float fraction) {
 	if (!xent_is_valid_node(ctx, node)) return false;
 	return xent_set_layout_percent_field(
@@ -154,9 +170,16 @@ bool xent_set_height_percent(XentContext *ctx, XentNodeId node, float fraction) 
 
 bool xent_set_size_percent(XentContext *ctx, XentNodeId node, XentSize fraction) {
 	if (!xent_is_valid_node(ctx, node)) return false;
-	if (!isfinite(fraction.width) || fraction.width < 0.0f || !isfinite(fraction.height) || fraction.height < 0.0f)
-		return false;
-	return xent_set_width_percent(ctx, node, fraction.width) && xent_set_height_percent(ctx, node, fraction.height);
+	if (!isfinite(fraction.w) || fraction.w < 0.0f || !isfinite(fraction.h) || fraction.h < 0.0f) return false;
+	return xent_set_width_percent(ctx, node, fraction.w) && xent_set_height_percent(ctx, node, fraction.h);
+}
+
+bool xent_set_wrap_content(XentContext *ctx, XentNodeId node, bool wrap_width, bool wrap_height) {
+	if (!xent_is_valid_node(ctx, node)) return false;
+	ctx->nodes.layout.wrap_content_w [node] = wrap_width ? 1u : 0u;
+	ctx->nodes.layout.wrap_content_h [node] = wrap_height ? 1u : 0u;
+	xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
+	return true;
 }
 
 bool xent_set_aspect_ratio(XentContext *ctx, XentNodeId node, float aspect_ratio) {
@@ -224,10 +247,10 @@ int32_t xent_get_z_index(XentContext const *ctx, XentNodeId node) {
 
 bool xent_get_layout_rect(XentContext const *ctx, XentNodeId node, XentRect *out_rect) {
 	if (!xent_is_valid_node(ctx, node) || !out_rect) return false;
-	out_rect->x      = ctx->nodes.layout.abs_x [node];
-	out_rect->y      = ctx->nodes.layout.abs_y [node];
-	out_rect->width  = ctx->nodes.layout.decided_w [node];
-	out_rect->height = ctx->nodes.layout.decided_h [node];
+	out_rect->x = ctx->nodes.layout.abs_x [node];
+	out_rect->y = ctx->nodes.layout.abs_y [node];
+	out_rect->w = ctx->nodes.layout.decided_w [node];
+	out_rect->h = ctx->nodes.layout.decided_h [node];
 	return true;
 }
 

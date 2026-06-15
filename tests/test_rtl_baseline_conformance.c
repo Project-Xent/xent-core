@@ -59,7 +59,7 @@ static int test_flex_rtl_baseline(void) {
 	TEST_ASSERT(xent_get_layout_rect(ctx, tall, &tr));
 	TEST_ASSERT(xent_get_layout_rect(ctx, short_box, &sr));
 	TEST_ASSERT(tr.x > sr.x);
-	TEST_ASSERT(test_float_near(tr.y + tr.height, sr.y + sr.height, 0.3f));
+	TEST_ASSERT(test_float_near(tr.y + tr.h, sr.y + sr.h, 0.3f));
 
 	xent_destroy_context(ctx);
 	return 0;

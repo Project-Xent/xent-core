@@ -1,6 +1,7 @@
 #include <math.h>
 #include <stdio.h>
 
+#include "xent/xent_cli.h"
 #include "xent/xent.h"
 
 int main(void) {

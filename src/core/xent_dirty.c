@@ -22,16 +22,11 @@ static bool xent_ensure_dirty_capacity(XentContext *ctx, uint32_t needed) {
 	return true;
 }
 
-static bool xent_dirty_list_contains(XentContext const *ctx, XentNodeId node) {
-	for (uint32_t i = 0u; i < ctx->dirty_count; ++i)
-		if (ctx->dirty_nodes [i] == node) return true;
-	return false;
-}
-
 static void xent_note_direct_dirty(XentContext *ctx, XentNodeId node, uint32_t old_flags, uint32_t new_flags) {
 	if (xent_dirty_flags_are_direct(old_flags) || !xent_dirty_flags_are_direct(new_flags)) return;
-	if (xent_dirty_list_contains(ctx, node)) return;
+	if (ctx->nodes.layout.dirty_queued [node]) return;
 	if (!xent_ensure_dirty_capacity(ctx, ctx->dirty_count + 1u)) return;
+	ctx->nodes.layout.dirty_queued [node] = 1u;
 	ctx->dirty_nodes [ctx->dirty_count++] = node;
 }
 
@@ -60,8 +55,13 @@ void xent_compact_dirty_nodes(XentContext *ctx) {
 	uint32_t write = 0u;
 	for (uint32_t i = 0u; i < ctx->dirty_count; ++i) {
 		XentNodeId node = ctx->dirty_nodes [i];
-		if (xent_is_valid_node(ctx, node) && xent_dirty_flags_are_direct(ctx->nodes.layout.dirty_flags [node]))
+		if (xent_is_valid_node(ctx, node) && xent_dirty_flags_are_direct(ctx->nodes.layout.dirty_flags [node])) {
+			ctx->nodes.layout.dirty_queued [node] = 1u;
 			ctx->dirty_nodes [write++] = node;
+		}
+		else if (node != XENT_NODE_INVALID && node < ctx->nodes.capacity) {
+			ctx->nodes.layout.dirty_queued [node] = 0u;
+		}
 	}
 	ctx->dirty_count = write;
 }
@@ -76,7 +76,10 @@ void xent_clear_dirty_in_work_order(XentContext *ctx) {
 #endif
 	for (uint32_t i = 0; i < ctx->work_count; ++i) {
 		XentNodeId node = ctx->work_order [i];
-		if (xent_is_valid_node(ctx, node)) ctx->nodes.layout.dirty_flags [node] = XENT_DIRTY_NONE;
+		if (xent_is_valid_node(ctx, node)) {
+			ctx->nodes.layout.dirty_flags [node]  = XENT_DIRTY_NONE;
+			ctx->nodes.layout.dirty_queued [node] = 0u;
+		}
 	}
 	xent_compact_dirty_nodes(ctx);
 }

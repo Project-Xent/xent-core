@@ -11,6 +11,20 @@
 
 #define XENT_CACHE_MAX_CAP 4096u
 
+/** Default backing size for a fresh scratch chunk. */
+#define XENT_SCRATCH_CHUNK_SIZE (64u * 1024u)
+
+/** One node of the non-moving scratch arena. `data` is a flexible array of
+ * `cap` bytes; `used` is the bump cursor. Chunks are linked in allocation order,
+ * never reallocated, and retained across resets so live interior pointers handed
+ * to callers stay valid for the lifetime of the context. */
+typedef struct XentScratchChunk {
+	struct XentScratchChunk *next;
+	size_t                   cap;
+	size_t                   used;
+	uint8_t                  data[];
+} XentScratchChunk;
+
 typedef struct XentGridDef {
 	uint32_t row_count;
 	uint32_t col_count;
@@ -264,9 +278,9 @@ struct XentContext {
 	uint8_t                last_layout_strategy;
 	uint32_t               last_layout_node_count;
 
-	uint8_t               *scratch;
-	size_t                 scratch_size;
-	size_t                 scratch_capacity;
+	XentScratchChunk      *scratch_head;
+	XentScratchChunk      *scratch_current;
+	size_t                 scratch_chunk_size;
 
 	uint32_t               swiftstack_scope_depth;
 	uint32_t               flex_scope_depth;
@@ -344,6 +358,9 @@ void   xent_sort_by_priority(XentContext const *ctx, XentNodeId *ids, uint32_t c
 double xent_now_ms(void);
 void   xent_scratch_reset(XentContext *ctx);
 void  *xent_scratch_alloc(XentContext *ctx, size_t bytes, size_t alignment);
+/** Free every retained scratch chunk and clear the list. Call only at context
+ * teardown — chunks are reused across frames via xent_scratch_reset. */
+void   xent_free_scratch(XentContext *ctx);
 void   xent_sort_r(void *base, size_t count, size_t size, XentSortCompareFn compare, void *context);
 float  xent_estimate_text_baseline(XentContext *ctx, XentNodeId node, float cross_size);
 float  xent_simd_sum_f32(float const *values, uint32_t count);

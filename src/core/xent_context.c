@@ -41,6 +41,7 @@ XentContext *xent_create_context(XentConfig const *config) {
 
 	xent_apply_config_defaults(ctx, config);
 	xent_reset_last_layout(ctx);
+	ctx->scratch_chunk_size = XENT_SCRATCH_CHUNK_SIZE;
 	if (!xent_init_context_storage(ctx)) {
 		xent_destroy_context(ctx);
 		return NULL;
@@ -184,12 +185,11 @@ void xent_destroy_context(XentContext *ctx) {
 	free(ctx->work_order);
 	free(ctx->dirty_nodes);
 	free(ctx->plugins);
-	free(ctx->scratch);
+	xent_free_scratch(ctx);
 	ctx->free_ids    = NULL;
 	ctx->work_order  = NULL;
 	ctx->dirty_nodes = NULL;
 	ctx->plugins     = NULL;
-	ctx->scratch     = NULL;
 
 	free(ctx);
 }

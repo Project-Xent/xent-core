@@ -35,7 +35,9 @@ int main(void) {
 	TEST_ASSERT(test_float_near(child_rect.x, 1.0f, 0.001f));
 	TEST_ASSERT(test_float_near(child_rect.y, 2.5f, 0.001f));
 	TEST_ASSERT(test_float_near(child_rect.w, 3.5f, 0.001f));
-	TEST_ASSERT(test_float_near(child_rect.h, 4.5f, 0.001f));
+	/* Edge rounding (not size rounding): top 2.74->2.5, bottom 2.74+4.74=7.48->7.5,
+	 * so h = 7.5 - 2.5 = 5.0. (x/w coincide under both schemes; only h exposes it.) */
+	TEST_ASSERT(test_float_near(child_rect.h, 5.0f, 0.001f));
 
 	TEST_ASSERT(xent_set_point_scale_factor(ctx, 4.0f));
 	TEST_ASSERT(xent_layout(ctx, root, 10.3f, 20.7f));

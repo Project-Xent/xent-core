@@ -6,6 +6,34 @@
 #include <stdint.h>
 #include <stdio.h>
 
+/* --- Toolchain contract -------------------------------------------------
+ * The Xent stack builds as C23 (its own sources pass -std=c23 / /std:clatest).
+ * The PUBLIC HEADERS stay C23-optional so toolchain probes and mixed-standard
+ * consumers can include them without -std=c23: no hard C-standard #error (one
+ * such #error broke xmake's has_cfuncs checks under clang/mingw, which compile
+ * probes without -std=c23), and XENT_NODISCARD emits the attribute only where
+ * the active standard accepts the [[...]] syntax. On MSVC the C23 features the
+ * *sources* use land in cl 19.40 (VS 2022 17.10); guard only that, by compiler
+ * version — which never trips a probe. See the MSVC matrix in Xent/CODE_STYLE.md. */
+#if defined(_MSC_VER) && _MSC_VER < 1940
+#  error "Xent requires MSVC 19.40 (Visual Studio 2022 17.10) or newer."
+#endif
+
+/* [[nodiscard]] only where the active standard accepts the [[...]] syntax
+ * (C23, or C++17); in a C17/C11 probe it degrades to nothing. */
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L
+#  ifdef __has_c_attribute
+#    if __has_c_attribute(nodiscard)
+#      define XENT_NODISCARD [[nodiscard]]
+#    endif
+#  endif
+#elif defined(__cplusplus) && __cplusplus >= 201703L
+#  define XENT_NODISCARD [[nodiscard]]
+#endif
+#ifndef XENT_NODISCARD
+#  define XENT_NODISCARD
+#endif
+
 typedef uint32_t XentNodeId;
 
 #define XENT_NODE_INVALID (( XentNodeId ) 0)

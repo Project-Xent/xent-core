@@ -1,6 +1,6 @@
 # xent-core
 
-Pure-C11 layout, tree, text-shaping and semantics engine — the platform-independent
+Pure-C23 layout, tree, text-shaping and semantics engine — the platform-independent
 core of the Xent UI stack. No platform headers, no external deps; builds standalone.
 
 It computes geometry only (box rects + shaped glyph positions); drawing is left to a

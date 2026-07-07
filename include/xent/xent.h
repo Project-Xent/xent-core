@@ -11,14 +11,14 @@ extern "C"
 {
 #endif
 
-XentContext *xent_create_context(XentConfig const *config);
+XENT_NODISCARD XentContext *xent_create_context(XentConfig const *config);
 void         xent_destroy_context(XentContext *ctx);
 bool         xent_reserve_nodes(XentContext *ctx, uint32_t capacity);
 
 bool         xent_begin_frame(XentContext *ctx);
 bool         xent_end_frame(XentContext *ctx);
 
-XentNodeId   xent_create_node(XentContext *ctx);
+XENT_NODISCARD XentNodeId xent_create_node(XentContext *ctx);
 bool         xent_destroy_node(XentContext *ctx, XentNodeId node);
 
 bool         xent_append_child(XentContext *ctx, XentNodeId parent, XentNodeId child);

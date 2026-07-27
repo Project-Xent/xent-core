@@ -1,0 +1,81 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: xent-core-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [scalar, ispc]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: xent-core
+
+      - uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
+          build-cache: true
+          project-path: xent-core
+
+      - name: Install canonical formatter
+        run: pip install clang-format==22.1.2
+
+      - name: Check formatting
+        working-directory: xent-core
+        shell: pwsh
+        run: |
+          $files = git ls-files -- '*.c' '*.h' '*.ispc' |
+            Where-Object { $_ -notmatch '^(thirdparty|microsoft-ui-xaml)/' }
+          if (-not $files) {
+            throw "No source files found"
+          }
+          clang-format --dry-run --Werror --style=file -- $files
+
+      - name: Install ISPC
+        if: matrix.backend == 'ispc'
+        shell: pwsh
+        run: |
+          $release = Invoke-RestMethod https://api.github.com/repos/ispc/ispc/releases/latest
+          $asset = $release.assets |
+            Where-Object { $_.name -match 'windows.*\.zip$' } |
+            Select-Object -First 1
+          if (-not $asset) {
+            throw "The latest ISPC release has no Windows archive"
+          }
+          Invoke-WebRequest $asset.browser_download_url -OutFile ispc.zip
+          Expand-Archive ispc.zip -DestinationPath ispc
+          $compiler = Get-ChildItem ispc -Recurse -Filter ispc.exe |
+            Select-Object -First 1
+          if (-not $compiler) {
+            throw "ispc.exe was not present in $($asset.name)"
+          }
+          $compiler.DirectoryName | Out-File $env:GITHUB_PATH -Append
+
+      - name: Configure scalar
+        if: matrix.backend == 'scalar'
+        working-directory: xent-core
+        run: xmake f -m debug --ispc=n --simd=n --fault_injection=y
+
+      - name: Configure ISPC
+        if: matrix.backend == 'ispc'
+        working-directory: xent-core
+        run: xmake f -m debug --ispc=y --simd=y --fault_injection=y
+
+      - name: Test
+        working-directory: xent-core
+        run: xmake test
+
+      - name: Check patch whitespace
+        working-directory: xent-core
+        run: git diff --check

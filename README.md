@@ -54,10 +54,10 @@ xmake test
 
 `--ispc=y` requires `ispc` on `PATH`; `--simd=y` selects the SIMD path in the
 default configuration. `XentCfg.enable_simd` can still disable it at runtime.
-CI runs both scalar and ISPC configurations. The current 163-case
+CI runs both scalar and ISPC configurations. The current 196-case
 converter-supported Yoga corpus and allocation-failure tests are part of the
 ordinary gate. The Yoga snapshot contains 590 cases; unsupported cases are not
-included in that 163-case result.
+included in that 196-case result.
 
 ## Consume (xmake)
 

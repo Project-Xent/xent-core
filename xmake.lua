@@ -1,5 +1,6 @@
 set_project("xent-core")
-set_version("0.1.0")
+-- Version from the git tag: release CI injects $XENT_VERSION (tag minus "v").
+set_version(os.getenv("XENT_VERSION") or "0.3.0-dev")
 set_languages("c23")
 add_rules("mode.debug", "mode.release")
 set_warnings("all")
@@ -17,32 +18,46 @@ local unit_tests = {
     "test_text_cache",
     "test_text_backend_contract",
     "test_text_linebreak_policy",
-    "test_text_shaping",
     "test_mixed_protocols",
     "test_rtl_baseline_conformance",
     "test_layout_grid",
     "test_layout_grid_spec",
     "test_yoga_generated",
+    "test_yoga_supported",
     "test_cli",
     "test_profile",
+    "test_display",
+    "test_external_measure",
+    "test_ordered_topology",
+    "test_simd_equivalence",
+    "test_fault_injection",
 }
 
 option("simd")
     set_default(false)
-    set_description("Enable experimental SIMD path scaffolding")
+    set_description("Enable SIMD kernels at runtime by default")
 option_end()
 
 option("ispc")
     set_default(false)
     set_showmenu(true)
-    set_description("Enable ISPC SIMD backend when available")
+    set_description("Build the ISPC SIMD backend")
+option_end()
+
+option("fault_injection")
+    set_default(false)
+    set_showmenu(true)
+    set_description("Enable internal allocation fault-injection tests")
 option_end()
 
 target("xent_core")
     set_kind("static")
     add_includedirs("include", { public = true })
     add_headerfiles("include/xent/*.h")
-    add_files("src/core/*.c", "src/layout/*.c", "src/text/*.c", "src/cli/*.c", "src/plugins/*.c")
+    add_files("src/core/*.c", "src/layout/*.c", "src/text/*.c", "src/cli/*.c")
+    if has_config("fault_injection") then
+        add_defines("XENT_ENABLE_FAULT_INJECTION=1", { public = true })
+    end
     if is_plat("mingw") then
         add_cflags("-ffunction-sections", "-fdata-sections", { force = true })
     end
@@ -56,67 +71,42 @@ target("xent_core")
     end
     if has_config("ispc") then
         add_defines("XENT_ISPC_ENABLED=1", { public = true })
-
-        -- Register the generated-header include directory at load time so
-        -- every C source that #includes the ISPC header can find it.
-        on_load( function (target)
-            local headerdir = path.join(target:autogendir(), "rules", "ispc")
-            target:add("includedirs", headerdir)
+        on_load(function (target)
+            local dir = path.join(target:autogendir(), "ispc")
+            target:add("includedirs", dir)
         end)
-
-        -- Compile every .ispc file *before* any C file is compiled.
-        -- This guarantees the generated _ispc.h header already exists when
-        -- xent_simd.c is built.  Multi-target builds (e.g. sse4 + avx2)
-        -- produce per-ISA object files that are all added to the link.
-        before_build( function (target)
+        before_build(function (target)
             import("lib.detect.find_program")
-            local ispc_bin = find_program("ispc")
-            assert(ispc_bin, "ispc compiler not found on PATH – install via `scoop install ispc`")
+            local ispc = find_program("ispc")
+            assert(ispc, "ispc compiler not found on PATH")
 
-            local headerdir = path.join(target:autogendir(), "rules", "ispc")
-            local objdir = path.join(target:autogendir(), "rules", "ispc", "objs")
-            os.mkdir(headerdir)
-            os.mkdir(objdir)
-
-            local ispc_targets = { "sse4", "avx2" }
-            local targets_str = table.concat(ispc_targets, ",")
-
-            local sources = os.files(path.join(os.scriptdir(), "src/simd/*.ispc"))
-            for _, sourcefile in ipairs(sources) do
-                local basename = path.basename(sourcefile)
-                local objectfile = path.join(objdir, basename .. ".obj")
-                local headerfile = path.join(headerdir, basename .. "_ispc.h")
-
-                -- Incremental: skip when source has not changed.
-                local src_mtime = os.mtime(sourcefile)
-                local obj_mtime = os.mtime(objectfile)
-                if src_mtime > obj_mtime then
-                    local argv = {
-                        sourcefile,
-                        "-o", objectfile,
-                        "-h", headerfile,
-                        "--target=" .. targets_str,
-                        "--arch=x86-64",
-                        "--opt=fast-math",
-                    }
-                    if is_mode("debug") then
-                        table.insert(argv, "-g")
-                    end
-                    os.vrunv(ispc_bin, argv)
+            local dir = path.join(target:autogendir(), "ispc")
+            local ext = is_plat("windows") and ".obj" or ".o"
+            local source = path.join(os.scriptdir(), "src", "simd", "xent_ispc_kernels.ispc")
+            local object = path.join(dir, "xent_ispc_kernels" .. ext)
+            local header = path.join(dir, "xent_ispc_kernels_ispc.h")
+            local script = path.join(os.scriptdir(), "xmake.lua")
+            local newest_input = math.max(os.mtime(source), os.mtime(script))
+            if os.mtime(object) < newest_input then
+                os.mkdir(dir)
+                local argv = {
+                    source,
+                    "-o", object,
+                    "-h", header,
+                    "--target=sse4,avx2",
+                    "--arch=x86-64",
+                    "-O2",
+                }
+                if is_mode("debug") then
+                    table.insert(argv, "-g")
                 end
-
+                os.vrunv(ispc, argv)
             end
-        end)
 
-        -- After the normal archive is produced, append the ISPC object files
-        -- into the static library so consumers link them transparently.
-        after_build( function (target)
-            local objdir = path.join(target:autogendir(), "rules", "ispc", "objs")
-            local objs = os.files(path.join(objdir, "*.obj"))
-            if #objs > 0 then
-                local ar = target:tool("ar")
-                os.vrunv(ar, table.join({ "rcs", target:targetfile() }, objs))
-            end
+            local objects = target:objectfiles()
+            table.insert(objects, object)
+            table.insert(objects, path.join(dir, "xent_ispc_kernels_sse4" .. ext))
+            table.insert(objects, path.join(dir, "xent_ispc_kernels_avx2" .. ext))
         end)
     else
         add_defines("XENT_ISPC_ENABLED=0", { public = true })
@@ -151,23 +141,14 @@ for _, test_name in ipairs(unit_tests) do
     target(test_name)
         set_default(false)
         set_kind("binary")
-        if test_name == "test_yoga_generated" then
-            add_files("tests/yoga/test_yoga_generated.c")
+        if test_name == "test_yoga_generated" or test_name == "test_yoga_supported" then
+            add_files("tests/yoga/" .. test_name .. ".c")
         else
             add_files("tests/" .. test_name .. ".c")
         end
         add_deps("xent_core")
         add_includedirs("include", "tests")
 end
-
--- Expanded Yoga conformance set (generated by tests/yoga/convert_yoga.py). Not in
--- `xmake test` since it reports pass/fail counts rather than all-pass; run manually.
-target("test_yoga_full")
-    set_default(false)
-    set_kind("binary")
-    add_files("tests/yoga/test_yoga_full.c")
-    add_deps("xent_core")
-    add_includedirs("include", "tests")
 
 task("test")
     set_menu {
@@ -176,7 +157,28 @@ task("test")
     }
     on_run( function ()
         for _, t in ipairs(unit_tests) do
-            os.exec("xmake build " .. t)
-            os.exec("xmake run " .. t)
+            if t ~= "test_fault_injection" or has_config("fault_injection") then
+                os.exec("xmake build " .. t)
+                os.exec("xmake run " .. t)
+            end
         end
+    end)
+
+task("gen-yoga")
+    set_menu {
+        usage = "xmake gen-yoga --source=<yoga-generated-dir> [--output=<out.c>]",
+        description = "Regenerate the supported Yoga conformance fixture.",
+        options = {
+            {'s', "source", "kv", nil, "Yoga tests/generated directory."},
+            {'o', "output", "kv", nil, "Generated C file; defaults to tests/yoga/test_yoga_supported.c."},
+        },
+    }
+    on_run(function ()
+        import("core.base.option")
+        local source = option.get("source")
+        assert(source, "--source is required")
+        local args = {"lua", path.join(os.scriptdir(), "tools", "gen_yoga.lua"), source}
+        local output = option.get("output")
+        if output then table.insert(args, output) end
+        os.execv("xmake", args)
     end)

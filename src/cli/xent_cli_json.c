@@ -30,17 +30,19 @@ static void json_escape(FILE *out, char const *text) {
 	while (*text) json_escape_char(out, ( unsigned char ) *text++);
 }
 
-static bool dump_json_node_open(XentContext const *ctx, XentNodeId node, FILE *out) {
-	if (!xent_is_valid_node(ctx, node)) return false;
+static bool dump_json_node_open(XentCtx const *ctx, XentNodeId node, FILE *out) {
+	if (!xent_node_valid(ctx, node)) return false;
 
 	fprintf(
-	  out, "{\"id\":%u,\"protocol\":%u,\"rect\":{\"x\":%.3f,\"y\":%.3f,\"w\":%.3f,\"h\":%.3f}", node,
-	  ( unsigned ) ctx->nodes.layout.protocol [node], ctx->nodes.layout.abs_x [node], ctx->nodes.layout.abs_y [node],
-	  ctx->nodes.layout.decided_w [node], ctx->nodes.layout.decided_h [node]
+	  out, "{\"id\":%u,\"generation\":%u,\"protocol\":%u,\"rect\":{\"x\":%.3f,\"y\":%.3f,\"w\":%.3f,\"h\":%.3f}",
+	  xent_node_index(node), xent_node_generation(node),
+	  ( unsigned ) ctx->nodes.layout.protocol [xent_node_index(node)], ctx->nodes.layout.abs_x [xent_node_index(node)],
+	  ctx->nodes.layout.abs_y [xent_node_index(node)], ctx->nodes.layout.decided_w [xent_node_index(node)],
+	  ctx->nodes.layout.decided_h [xent_node_index(node)]
 	);
 
-	char const *label = xent_get_semantic_label(ctx, node);
-	char const *text  = xent_get_text(ctx, node);
+	char const *label = xent_sem_label(ctx, node);
+	char const *text  = xent_node_text(ctx, node);
 
 	if (label) {
 		fputs(",\"label\":\"", out);
@@ -75,15 +77,17 @@ static bool json_stack_push(JsonDumpFrame **stack, uint32_t *top, uint32_t *capa
 	return true;
 }
 
-bool xent_dump_layout_json(XentContext const *ctx, XentNodeId root, FILE *out) {
-	if (!xent_is_valid_node(ctx, root) || !out) return false;
+bool xent_dump_layout_json(XentCtx const *ctx, XentNodeId root, FILE *out) {
+	if (!xent_node_valid(ctx, root) || !out) return false;
 
 	JsonDumpFrame *stack    = NULL;
 	uint32_t       top      = 0u;
 	uint32_t       capacity = 0u;
 	bool           ok
 	  = dump_json_node_open(ctx, root, out)
-	 && json_stack_push(&stack, &top, &capacity, (JsonDumpFrame) {root, ctx->nodes.topology.first_child [root], true});
+	 && json_stack_push(
+	   &stack, &top, &capacity, (JsonDumpFrame) {root, ctx->nodes.topology.first_child [xent_node_index(root)], true}
+	 );
 
 	while (ok && top > 0u) {
 		JsonDumpFrame *frame = &stack [top - 1u];
@@ -94,13 +98,14 @@ bool xent_dump_layout_json(XentContext const *ctx, XentNodeId root, FILE *out) {
 		}
 
 		XentNodeId child  = frame->next_child;
-		frame->next_child = ctx->nodes.topology.next_sibling [child];
+		frame->next_child = ctx->nodes.topology.next_sibling [xent_node_index(child)];
 		if (!frame->first_child) fputc(',', out);
 		frame->first_child = false;
 
 		ok                 = dump_json_node_open(ctx, child, out)
 		                  && json_stack_push(
-			&stack, &top, &capacity, (JsonDumpFrame) {child, ctx->nodes.topology.first_child [child], true}
+			&stack, &top, &capacity,
+			(JsonDumpFrame) {child, ctx->nodes.topology.first_child [xent_node_index(child)], true}
 		  );
 	}
 

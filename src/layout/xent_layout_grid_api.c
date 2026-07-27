@@ -12,17 +12,8 @@ typedef struct GridTrackTarget {
 	float   **values;
 } GridTrackTarget;
 
-static XentGridDef *xent_ensure_grid_def(XentContext *ctx, XentNodeId node) {
-	if (!ctx->nodes.grid.def [node]) {
-		XentGridDef *def = ( XentGridDef * ) calloc(1, sizeof(XentGridDef));
-		if (!def) return NULL;
-		ctx->nodes.grid.def [node] = def;
-	}
-	return ctx->nodes.grid.def [node];
-}
-
-static bool xent_set_grid_tracks(XentContext *ctx, XentNodeId node, GridTrackRequest request, GridTrackTarget target) {
-	if (!xent_is_valid_node(ctx, node)
+static bool set_grid_tracks(XentCtx *ctx, XentNodeId node, GridTrackRequest request, GridTrackTarget target) {
+	if (!xent_node_valid(ctx, node)
 		|| request.count > UINT16_MAX
 		|| (request.count > 0u && (!request.modes || !request.values)))
 	{
@@ -55,89 +46,89 @@ static bool xent_set_grid_tracks(XentContext *ctx, XentNodeId node, GridTrackReq
 	return true;
 }
 
-bool xent_set_grid_rows(
-  XentContext *ctx, XentNodeId node, XentGridSizeMode const *modes, float const *values, uint32_t count
+bool xent_grid_setrows(
+  XentCtx *ctx, XentNodeId node, XentGridSizeMode const *modes, float const *values, uint32_t count
 ) {
-	XentGridDef *def = xent_ensure_grid_def(ctx, node);
+	XentGridDef *def = xent_grid_def_ensure(&ctx->nodes.grid.def [xent_node_index(node)]);
 	if (!def) return false;
-	return xent_set_grid_tracks(
+	return set_grid_tracks(
 	  ctx, node, (GridTrackRequest) {modes, values, count},
 	  (GridTrackTarget) {&def->row_count, &def->row_modes, &def->row_values}
 	);
 }
 
-bool xent_set_grid_columns(
-  XentContext *ctx, XentNodeId node, XentGridSizeMode const *modes, float const *values, uint32_t count
+bool xent_grid_setcols(
+  XentCtx *ctx, XentNodeId node, XentGridSizeMode const *modes, float const *values, uint32_t count
 ) {
-	XentGridDef *def = xent_ensure_grid_def(ctx, node);
+	XentGridDef *def = xent_grid_def_ensure(&ctx->nodes.grid.def [xent_node_index(node)]);
 	if (!def) return false;
-	return xent_set_grid_tracks(
+	return set_grid_tracks(
 	  ctx, node, (GridTrackRequest) {modes, values, count},
 	  (GridTrackTarget) {&def->col_count, &def->col_modes, &def->col_values}
 	);
 }
 
-bool xent_set_grid_row(XentContext *ctx, XentNodeId node, uint32_t row) {
-	if (!xent_is_valid_node(ctx, node)) return false;
-	ctx->nodes.grid.row [node] = ( uint16_t ) row;
+bool xent_grid_setrow(XentCtx *ctx, XentNodeId node, uint32_t row) {
+	if (!xent_node_valid(ctx, node)) return false;
+	ctx->nodes.grid.row [xent_node_index(node)] = ( uint16_t ) row;
 	xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
 	return true;
 }
 
-bool xent_set_grid_column(XentContext *ctx, XentNodeId node, uint32_t column) {
-	if (!xent_is_valid_node(ctx, node)) return false;
-	ctx->nodes.grid.column [node] = ( uint16_t ) column;
+bool xent_grid_setcol(XentCtx *ctx, XentNodeId node, uint32_t column) {
+	if (!xent_node_valid(ctx, node)) return false;
+	ctx->nodes.grid.column [xent_node_index(node)] = ( uint16_t ) column;
 	xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
 	return true;
 }
 
-bool xent_set_grid_row_span(XentContext *ctx, XentNodeId node, uint32_t span) {
-	if (!xent_is_valid_node(ctx, node) || span == 0) return false;
-	ctx->nodes.grid.row_span [node] = ( uint16_t ) span;
+bool xent_grid_setrowspan(XentCtx *ctx, XentNodeId node, uint32_t span) {
+	if (!xent_node_valid(ctx, node) || span == 0) return false;
+	ctx->nodes.grid.row_span [xent_node_index(node)] = ( uint16_t ) span;
 	xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
 	return true;
 }
 
-bool xent_set_grid_column_span(XentContext *ctx, XentNodeId node, uint32_t span) {
-	if (!xent_is_valid_node(ctx, node) || span == 0) return false;
-	ctx->nodes.grid.column_span [node] = ( uint16_t ) span;
+bool xent_grid_setcolspan(XentCtx *ctx, XentNodeId node, uint32_t span) {
+	if (!xent_node_valid(ctx, node) || span == 0) return false;
+	ctx->nodes.grid.column_span [xent_node_index(node)] = ( uint16_t ) span;
 	xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
 	return true;
 }
 
-static bool xent_set_grid_axis_gap(XentContext *ctx, XentNodeId node, float *target, float gap) {
-	if (!xent_is_valid_node(ctx, node) || !target) return false;
+static bool set_grid_axis_gap(XentCtx *ctx, XentNodeId node, float *target, float gap) {
+	if (!xent_node_valid(ctx, node) || !target) return false;
 	*target = gap;
 	xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
 	return true;
 }
 
-bool xent_set_grid_row_gap(XentContext *ctx, XentNodeId node, float gap) {
-	XentGridDef *def = xent_ensure_grid_def(ctx, node);
-	return xent_set_grid_axis_gap(ctx, node, def ? &def->row_gap : NULL, gap);
+bool xent_grid_setrowgap(XentCtx *ctx, XentNodeId node, float gap) {
+	XentGridDef *def = xent_grid_def_ensure(&ctx->nodes.grid.def [xent_node_index(node)]);
+	return set_grid_axis_gap(ctx, node, def ? &def->row_gap : NULL, gap);
 }
 
-bool xent_set_grid_column_gap(XentContext *ctx, XentNodeId node, float gap) {
-	XentGridDef *def = xent_ensure_grid_def(ctx, node);
-	return xent_set_grid_axis_gap(ctx, node, def ? &def->col_gap : NULL, gap);
+bool xent_grid_setcolgap(XentCtx *ctx, XentNodeId node, float gap) {
+	XentGridDef *def = xent_grid_def_ensure(&ctx->nodes.grid.def [xent_node_index(node)]);
+	return set_grid_axis_gap(ctx, node, def ? &def->col_gap : NULL, gap);
 }
 
-uint32_t xent_get_grid_row(XentContext const *ctx, XentNodeId node) {
-	if (!xent_is_valid_node(ctx, node)) return 0;
-	return ctx->nodes.grid.row [node];
+uint32_t xent_grid_row(XentCtx const *ctx, XentNodeId node) {
+	if (!xent_node_valid(ctx, node)) return 0;
+	return ctx->nodes.grid.row [xent_node_index(node)];
 }
 
-uint32_t xent_get_grid_column(XentContext const *ctx, XentNodeId node) {
-	if (!xent_is_valid_node(ctx, node)) return 0;
-	return ctx->nodes.grid.column [node];
+uint32_t xent_grid_col(XentCtx const *ctx, XentNodeId node) {
+	if (!xent_node_valid(ctx, node)) return 0;
+	return ctx->nodes.grid.column [xent_node_index(node)];
 }
 
-uint32_t xent_get_grid_row_span(XentContext const *ctx, XentNodeId node) {
-	if (!xent_is_valid_node(ctx, node)) return 1;
-	return ctx->nodes.grid.row_span [node];
+uint32_t xent_grid_rowspan(XentCtx const *ctx, XentNodeId node) {
+	if (!xent_node_valid(ctx, node)) return 1;
+	return ctx->nodes.grid.row_span [xent_node_index(node)];
 }
 
-uint32_t xent_get_grid_column_span(XentContext const *ctx, XentNodeId node) {
-	if (!xent_is_valid_node(ctx, node)) return 1;
-	return ctx->nodes.grid.column_span [node];
+uint32_t xent_grid_colspan(XentCtx const *ctx, XentNodeId node) {
+	if (!xent_node_valid(ctx, node)) return 1;
+	return ctx->nodes.grid.column_span [xent_node_index(node)];
 }

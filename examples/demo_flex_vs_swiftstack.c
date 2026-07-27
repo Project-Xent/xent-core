@@ -4,67 +4,66 @@
 #include "xent/xent_cli.h"
 #include "xent/xent.h"
 
-static void build_row(
-  XentContext *ctx, XentNodeId container, bool use_swiftstack, char const *label_text, char const *semantic_label
-) {
-	XentNodeId icon     = xent_create_node(ctx);
-	XentNodeId text     = xent_create_node(ctx);
-	XentNodeId spacer   = xent_create_node(ctx);
-	XentNodeId trailing = xent_create_node(ctx);
+static void
+build_row(XentCtx *ctx, XentNodeId container, bool use_swiftstack, char const *label_text, char const *semantic_label) {
+	XentNodeId icon     = xent_node_create(ctx);
+	XentNodeId text     = xent_node_create(ctx);
+	XentNodeId spacer   = xent_node_create(ctx);
+	XentNodeId trailing = xent_node_create(ctx);
 
-	xent_set_semantic_label(ctx, container, semantic_label);
-	xent_set_size(ctx, icon, (XentSize) {24.0f, 24.0f});
-	xent_set_size(ctx, trailing, (XentSize) {20.0f, 20.0f});
-	xent_set_text(ctx, text, label_text);
+	xent_sem_setlabel(ctx, container, semantic_label);
+	xent_setsize(ctx, icon, (XentSize) {24.0f, 24.0f});
+	xent_setsize(ctx, trailing, (XentSize) {20.0f, 20.0f});
+	xent_settext(ctx, text, label_text);
 
 	if (use_swiftstack) {
-		xent_set_protocol(ctx, container, XENT_PROTOCOL_SWIFTSTACK);
-		xent_set_stack_axis(ctx, container, XENT_AXIS_HORIZONTAL);
-		xent_set_layout_priority(ctx, text, 1.0f);
-		xent_set_is_spacer(ctx, spacer, true);
+		xent_setproto(ctx, container, XENT_PROTOCOL_SWIFTSTACK);
+		xent_stack_setaxis(ctx, container, XENT_AXIS_HORIZONTAL);
+		xent_stack_setprio(ctx, text, 1.0f);
+		xent_stack_setspacer(ctx, spacer, true);
 	}
 	else {
-		xent_set_protocol(ctx, container, XENT_PROTOCOL_FLEX);
-		xent_set_flex_direction(ctx, container, XENT_FLEX_ROW);
-		xent_set_flex_grow(ctx, spacer, 1.0f);
-		xent_set_flex_shrink(ctx, spacer, 1.0f);
+		xent_setproto(ctx, container, XENT_PROTOCOL_FLEX);
+		xent_setflexdir(ctx, container, XENT_FLEX_ROW);
+		xent_setgrow(ctx, spacer, 1.0f);
+		xent_setshrink(ctx, spacer, 1.0f);
 	}
-	xent_set_gap(ctx, container, 6.0f);
+	xent_setgap(ctx, container, 6.0f);
 
-	xent_append_child(ctx, container, icon);
-	xent_append_child(ctx, container, text);
-	xent_append_child(ctx, container, spacer);
-	xent_append_child(ctx, container, trailing);
+	xent_node_append(ctx, container, icon);
+	xent_node_append(ctx, container, text);
+	xent_node_append(ctx, container, spacer);
+	xent_node_append(ctx, container, trailing);
 }
 
 static void run_case(float width) {
-	XentContext *ctx   = xent_create_context(NULL);
-	XentNodeId   root  = xent_create_node(ctx);
-	XentNodeId   left  = xent_create_node(ctx);
-	XentNodeId   right = xent_create_node(ctx);
+	XentCtx   *ctx   = xent_ctx_create(NULL);
+	XentNodeId root  = xent_node_create(ctx);
+	XentNodeId left  = xent_node_create(ctx);
+	XentNodeId right = xent_node_create(ctx);
 
-	xent_set_protocol(ctx, root, XENT_PROTOCOL_FLEX);
-	xent_set_flex_direction(ctx, root, XENT_FLEX_ROW);
-	xent_set_size(ctx, root, (XentSize) {width, 120.0f});
-	xent_set_gap(ctx, root, 12.0f);
-	xent_set_padding(ctx, root, (XentInsets) {4.0f, 4.0f, 4.0f, 4.0f});
+	xent_setproto(ctx, root, XENT_PROTOCOL_FLEX);
+	xent_setflexdir(ctx, root, XENT_FLEX_ROW);
+	xent_setsize(ctx, root, (XentSize) {width, 120.0f});
+	xent_setgap(ctx, root, 12.0f);
+	xent_setp(ctx, root, (XentInsets) {4.0f, 4.0f, 4.0f, 4.0f});
 
-	xent_set_flex_grow(ctx, left, 1.0f);
-	xent_set_flex_grow(ctx, right, 1.0f);
-	xent_set_size(ctx, left, (XentSize) {NAN, 48.0f});
-	xent_set_size(ctx, right, (XentSize) {NAN, 48.0f});
+	xent_setgrow(ctx, left, 1.0f);
+	xent_setgrow(ctx, right, 1.0f);
+	xent_setsize(ctx, left, (XentSize) {NAN, 48.0f});
+	xent_setsize(ctx, right, (XentSize) {NAN, 48.0f});
 
 	build_row(ctx, left, false, "Flex row behavior", "flex_row");
 	build_row(ctx, right, true, "SwiftStack behavior", "swiftstack_row");
 
-	xent_append_child(ctx, root, left);
-	xent_append_child(ctx, root, right);
+	xent_node_append(ctx, root, left);
+	xent_node_append(ctx, root, right);
 
 	printf("\n=== width=%.0f ===\n", width);
 	xent_layout(ctx, root, width, 120.0f);
 	xent_dump_layout_text(ctx, root, stdout);
 
-	xent_destroy_context(ctx);
+	xent_ctx_destroy(ctx);
 }
 
 int main(void) {

@@ -1,19 +1,21 @@
 #include "../xent_internal.h"
 
-static bool xent_is_valid_direction(XentDirection direction) {
+static bool is_valid_direction(XentDirection direction) {
 	return direction == XENT_DIRECTION_INHERIT || direction == XENT_DIRECTION_LTR || direction == XENT_DIRECTION_RTL;
 }
 
-static XentDirection xent_resolve_direction_internal(XentContext const *ctx, XentNodeId node) {
-	if (!xent_is_valid_node(ctx, node)) return XENT_DIRECTION_LTR;
-	for (XentNodeId cursor = node; cursor != XENT_NODE_INVALID; cursor = ctx->nodes.topology.parent [cursor]) {
-		XentDirection direction = ( XentDirection ) ctx->nodes.layout.direction [cursor];
+static XentDirection resolve_direction_internal(XentCtx const *ctx, XentNodeId node) {
+	if (!xent_node_valid(ctx, node)) return XENT_DIRECTION_LTR;
+	for (XentNodeId cursor = node; cursor != XENT_NODE_INVALID;
+	  cursor               = ctx->nodes.topology.parent [xent_node_index(cursor)])
+	{
+		XentDirection direction = ( XentDirection ) ctx->nodes.layout.direction [xent_node_index(cursor)];
 		if (direction == XENT_DIRECTION_LTR || direction == XENT_DIRECTION_RTL) return direction;
 	}
 	return XENT_DIRECTION_LTR;
 }
 
-static XentResolvedInsets xent_resolve_logical_insets(XentInsets insets, XentDirection direction, XentAxis main_axis) {
+static XentResolvedInsets resolve_logical_insets(XentInsets insets, XentDirection direction, XentAxis main_axis) {
 	if (main_axis == XENT_AXIS_HORIZONTAL) {
 		return (XentResolvedInsets) {
 		  (direction == XENT_DIRECTION_RTL) ? insets.right : insets.left,
@@ -31,31 +33,32 @@ static XentResolvedInsets xent_resolve_logical_insets(XentInsets insets, XentDir
 	};
 }
 
-static XentInsets xent_layout_insets(float left, float top, float right, float bottom) {
+static XentInsets layout_insets(float left, float top, float right, float bottom) {
 	return (XentInsets) {left, top, right, bottom};
 }
 
-static bool xent_get_resolved_layout_insets(
-  XentContext const *ctx, XentNodeId node, XentAxis main_axis, XentInsets insets, XentResolvedInsets *out_insets
+static bool get_resolved_layout_insets(
+  XentCtx const *ctx, XentNodeId node, XentAxis main_axis, XentInsets insets, XentResolvedInsets *out_insets
 ) {
-	if (!xent_is_valid_node(ctx, node) || !out_insets) return false;
-	*out_insets = xent_resolve_logical_insets(insets, xent_resolve_direction_internal(ctx, node), main_axis);
+	if (!xent_node_valid(ctx, node) || !out_insets) return false;
+	*out_insets = resolve_logical_insets(insets, resolve_direction_internal(ctx, node), main_axis);
 	return true;
 }
 
-static bool xent_set_layout_size_fields(XentContext *ctx, XentNodeId node, XentSize size, float *width, float *height) {
-	if (!xent_is_valid_node(ctx, node)) return false;
+static bool set_layout_size_fields(XentCtx *ctx, XentNodeId node, XentSize size, float *width, float *height) {
+	if (!xent_node_valid(ctx, node)) return false;
 	*width  = size.w;
 	*height = size.h;
-	if (width == &ctx->nodes.layout.style_w [node]) ctx->nodes.layout.style_w_percent [node] = NAN;
-	if (height == &ctx->nodes.layout.style_h [node]) ctx->nodes.layout.style_h_percent [node] = NAN;
+	if (width == &ctx->nodes.layout.style_w [xent_node_index(node)])
+		ctx->nodes.layout.style_w_percent [xent_node_index(node)] = NAN;
+	if (height == &ctx->nodes.layout.style_h [xent_node_index(node)])
+		ctx->nodes.layout.style_h_percent [xent_node_index(node)] = NAN;
 	xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
 	return true;
 }
 
-static bool
-xent_set_layout_percent_field(XentContext *ctx, XentNodeId node, float fraction, float *percent, float *absolute) {
-	if (!xent_is_valid_node(ctx, node) || !isfinite(fraction) || fraction < 0.0f) return false;
+static bool set_layout_percent_field(XentCtx *ctx, XentNodeId node, float fraction, float *percent, float *absolute) {
+	if (!xent_node_valid(ctx, node) || !isfinite(fraction) || fraction < 0.0f) return false;
 	*percent  = fraction;
 	*absolute = NAN;
 	xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
@@ -69,142 +72,142 @@ typedef struct XentLayoutInsetArrays {
 	float *b;
 } XentLayoutInsetArrays;
 
-static void xent_write_insets(XentInsets insets, XentLayoutInsetArrays arrays, XentNodeId node) {
-	arrays.l [node] = insets.left;
-	arrays.t [node] = insets.top;
-	arrays.r [node] = insets.right;
-	arrays.b [node] = insets.bottom;
+static void write_insets(XentInsets insets, XentLayoutInsetArrays arrays, XentNodeId node) {
+	uint32_t index   = xent_node_index(node);
+	arrays.l [index] = insets.left;
+	arrays.t [index] = insets.top;
+	arrays.r [index] = insets.right;
+	arrays.b [index] = insets.bottom;
 }
 
-bool xent_set_protocol(XentContext *ctx, XentNodeId node, XentProtocol protocol) {
-	if (!xent_is_valid_node(ctx, node)) return false;
-	ctx->nodes.layout.protocol [node] = ( uint8_t ) protocol;
+bool xent_setproto(XentCtx *ctx, XentNodeId node, XentProtocol protocol) {
+	if (!xent_node_valid(ctx, node)) return false;
+	ctx->nodes.layout.protocol [xent_node_index(node)] = ( uint8_t ) protocol;
 	xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
 	return true;
 }
 
-XentProtocol xent_get_protocol(XentContext const *ctx, XentNodeId node) {
-	if (!xent_is_valid_node(ctx, node)) return XENT_PROTOCOL_ABSOLUTE;
-	return ( XentProtocol ) ctx->nodes.layout.protocol [node];
+XentProtocol xent_node_proto(XentCtx const *ctx, XentNodeId node) {
+	if (!xent_node_valid(ctx, node)) return XENT_PROTOCOL_ABSOLUTE;
+	return ( XentProtocol ) ctx->nodes.layout.protocol [xent_node_index(node)];
 }
 
-bool xent_set_direction(XentContext *ctx, XentNodeId node, XentDirection direction) {
-	if (!xent_is_valid_node(ctx, node) || !xent_is_valid_direction(direction)) return false;
-	if (ctx->nodes.layout.direction [node] != ( uint8_t ) direction) {
-		ctx->nodes.layout.direction [node] = ( uint8_t ) direction;
+bool xent_setdir(XentCtx *ctx, XentNodeId node, XentDirection direction) {
+	if (!xent_node_valid(ctx, node) || !is_valid_direction(direction)) return false;
+	if (ctx->nodes.layout.direction [xent_node_index(node)] != ( uint8_t ) direction) {
+		ctx->nodes.layout.direction [xent_node_index(node)] = ( uint8_t ) direction;
 		xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT | XENT_DIRTY_SUBTREE);
 	}
 	return true;
 }
 
-XentDirection xent_get_direction(XentContext const *ctx, XentNodeId node) {
-	if (!xent_is_valid_node(ctx, node)) return XENT_DIRECTION_INHERIT;
-	return ( XentDirection ) ctx->nodes.layout.direction [node];
+XentDirection xent_dir(XentCtx const *ctx, XentNodeId node) {
+	if (!xent_node_valid(ctx, node)) return XENT_DIRECTION_INHERIT;
+	return ( XentDirection ) ctx->nodes.layout.direction [xent_node_index(node)];
 }
 
-XentDirection xent_get_resolved_direction(XentContext const *ctx, XentNodeId node) {
-	return xent_resolve_direction_internal(ctx, node);
-}
+XentDirection xent_resolved_dir(XentCtx const *ctx, XentNodeId node) { return resolve_direction_internal(ctx, node); }
 
-bool xent_get_resolved_margin(
-  XentContext const *ctx, XentNodeId node, XentAxis main_axis, XentResolvedInsets *out_insets
-) {
-	return xent_get_resolved_layout_insets(
+bool          xent_resolved_m(XentCtx const *ctx, XentNodeId node, XentAxis main_axis, XentResolvedInsets *out_insets) {
+	return get_resolved_layout_insets(
 	  ctx, node, main_axis,
-	  xent_layout_insets(
-		ctx->nodes.layout.margin_l [node], ctx->nodes.layout.margin_t [node], ctx->nodes.layout.margin_r [node],
-		ctx->nodes.layout.margin_b [node]
+	  layout_insets(
+		ctx->nodes.layout.margin_l [xent_node_index(node)], ctx->nodes.layout.margin_t [xent_node_index(node)],
+		ctx->nodes.layout.margin_r [xent_node_index(node)], ctx->nodes.layout.margin_b [xent_node_index(node)]
 	  ),
 	  out_insets
 	);
 }
 
-bool xent_get_resolved_padding(
-  XentContext const *ctx, XentNodeId node, XentAxis main_axis, XentResolvedInsets *out_insets
-) {
-	return xent_get_resolved_layout_insets(
+bool xent_resolved_p(XentCtx const *ctx, XentNodeId node, XentAxis main_axis, XentResolvedInsets *out_insets) {
+	return get_resolved_layout_insets(
 	  ctx, node, main_axis,
-	  xent_layout_insets(
-		ctx->nodes.layout.padding_l [node], ctx->nodes.layout.padding_t [node], ctx->nodes.layout.padding_r [node],
-		ctx->nodes.layout.padding_b [node]
+	  layout_insets(
+		ctx->nodes.layout.padding_l [xent_node_index(node)], ctx->nodes.layout.padding_t [xent_node_index(node)],
+		ctx->nodes.layout.padding_r [xent_node_index(node)], ctx->nodes.layout.padding_b [xent_node_index(node)]
 	  ),
 	  out_insets
 	);
 }
 
-bool xent_set_size(XentContext *ctx, XentNodeId node, XentSize size) {
-	return xent_set_layout_size_fields(
-	  ctx, node, size, &ctx->nodes.layout.style_w [node], &ctx->nodes.layout.style_h [node]
+bool xent_setsize(XentCtx *ctx, XentNodeId node, XentSize size) {
+	return set_layout_size_fields(
+	  ctx, node, size, &ctx->nodes.layout.style_w [xent_node_index(node)],
+	  &ctx->nodes.layout.style_h [xent_node_index(node)]
 	);
 }
 
-bool xent_set_width(XentContext *ctx, XentNodeId node, float width) {
-	if (!xent_is_valid_node(ctx, node)) return false;
-	ctx->nodes.layout.style_w [node]         = width;
-	ctx->nodes.layout.style_w_percent [node] = NAN;
+bool xent_setw(XentCtx *ctx, XentNodeId node, float width) {
+	if (!xent_node_valid(ctx, node)) return false;
+	ctx->nodes.layout.style_w [xent_node_index(node)]         = width;
+	ctx->nodes.layout.style_w_percent [xent_node_index(node)] = NAN;
 	xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
 	return true;
 }
 
-bool xent_set_height(XentContext *ctx, XentNodeId node, float height) {
-	if (!xent_is_valid_node(ctx, node)) return false;
-	ctx->nodes.layout.style_h [node]         = height;
-	ctx->nodes.layout.style_h_percent [node] = NAN;
+bool xent_seth(XentCtx *ctx, XentNodeId node, float height) {
+	if (!xent_node_valid(ctx, node)) return false;
+	ctx->nodes.layout.style_h [xent_node_index(node)]         = height;
+	ctx->nodes.layout.style_h_percent [xent_node_index(node)] = NAN;
 	xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
 	return true;
 }
 
-bool xent_set_width_percent(XentContext *ctx, XentNodeId node, float fraction) {
-	if (!xent_is_valid_node(ctx, node)) return false;
-	return xent_set_layout_percent_field(
-	  ctx, node, fraction, &ctx->nodes.layout.style_w_percent [node], &ctx->nodes.layout.style_w [node]
+bool xent_setwpct(XentCtx *ctx, XentNodeId node, float fraction) {
+	if (!xent_node_valid(ctx, node)) return false;
+	return set_layout_percent_field(
+	  ctx, node, fraction, &ctx->nodes.layout.style_w_percent [xent_node_index(node)],
+	  &ctx->nodes.layout.style_w [xent_node_index(node)]
 	);
 }
 
-bool xent_set_height_percent(XentContext *ctx, XentNodeId node, float fraction) {
-	if (!xent_is_valid_node(ctx, node)) return false;
-	return xent_set_layout_percent_field(
-	  ctx, node, fraction, &ctx->nodes.layout.style_h_percent [node], &ctx->nodes.layout.style_h [node]
+bool xent_sethpct(XentCtx *ctx, XentNodeId node, float fraction) {
+	if (!xent_node_valid(ctx, node)) return false;
+	return set_layout_percent_field(
+	  ctx, node, fraction, &ctx->nodes.layout.style_h_percent [xent_node_index(node)],
+	  &ctx->nodes.layout.style_h [xent_node_index(node)]
 	);
 }
 
-bool xent_set_size_percent(XentContext *ctx, XentNodeId node, XentSize fraction) {
-	if (!xent_is_valid_node(ctx, node)) return false;
+bool xent_setsizepct(XentCtx *ctx, XentNodeId node, XentSize fraction) {
+	if (!xent_node_valid(ctx, node)) return false;
 	if (!isfinite(fraction.w) || fraction.w < 0.0f || !isfinite(fraction.h) || fraction.h < 0.0f) return false;
-	return xent_set_width_percent(ctx, node, fraction.w) && xent_set_height_percent(ctx, node, fraction.h);
+	return xent_setwpct(ctx, node, fraction.w) && xent_sethpct(ctx, node, fraction.h);
 }
 
-bool xent_set_wrap_content(XentContext *ctx, XentNodeId node, bool wrap_width, bool wrap_height) {
-	if (!xent_is_valid_node(ctx, node)) return false;
-	ctx->nodes.layout.wrap_content_w [node] = wrap_width ? 1u : 0u;
-	ctx->nodes.layout.wrap_content_h [node] = wrap_height ? 1u : 0u;
+bool xent_setfit(XentCtx *ctx, XentNodeId node, bool wrap_width, bool wrap_height) {
+	if (!xent_node_valid(ctx, node)) return false;
+	ctx->nodes.layout.wrap_content_w [xent_node_index(node)] = wrap_width ? 1u : 0u;
+	ctx->nodes.layout.wrap_content_h [xent_node_index(node)] = wrap_height ? 1u : 0u;
 	xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
 	return true;
 }
 
-bool xent_set_aspect_ratio(XentContext *ctx, XentNodeId node, float aspect_ratio) {
-	if (!xent_is_valid_node(ctx, node) || (!isnan(aspect_ratio) && (!isfinite(aspect_ratio) || aspect_ratio <= 0.0f)))
+bool xent_setaspect(XentCtx *ctx, XentNodeId node, float aspect_ratio) {
+	if (!xent_node_valid(ctx, node) || (!isnan(aspect_ratio) && (!isfinite(aspect_ratio) || aspect_ratio <= 0.0f)))
 		return false;
-	ctx->nodes.layout.aspect_ratio [node] = aspect_ratio;
+	ctx->nodes.layout.aspect_ratio [xent_node_index(node)] = aspect_ratio;
 	xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
 	return true;
 }
 
-bool xent_set_min_size(XentContext *ctx, XentNodeId node, XentSize size) {
-	return xent_set_layout_size_fields(
-	  ctx, node, size, &ctx->nodes.layout.min_w [node], &ctx->nodes.layout.min_h [node]
+bool xent_setminsize(XentCtx *ctx, XentNodeId node, XentSize size) {
+	return set_layout_size_fields(
+	  ctx, node, size, &ctx->nodes.layout.min_w [xent_node_index(node)],
+	  &ctx->nodes.layout.min_h [xent_node_index(node)]
 	);
 }
 
-bool xent_set_max_size(XentContext *ctx, XentNodeId node, XentSize size) {
-	return xent_set_layout_size_fields(
-	  ctx, node, size, &ctx->nodes.layout.max_w [node], &ctx->nodes.layout.max_h [node]
+bool xent_setmaxsize(XentCtx *ctx, XentNodeId node, XentSize size) {
+	return set_layout_size_fields(
+	  ctx, node, size, &ctx->nodes.layout.max_w [xent_node_index(node)],
+	  &ctx->nodes.layout.max_h [xent_node_index(node)]
 	);
 }
 
-bool xent_set_margin(XentContext *ctx, XentNodeId node, XentInsets margin) {
-	if (!xent_is_valid_node(ctx, node)) return false;
-	xent_write_insets(
+bool xent_setm(XentCtx *ctx, XentNodeId node, XentInsets margin) {
+	if (!xent_node_valid(ctx, node)) return false;
+	write_insets(
 	  margin,
 	  (XentLayoutInsetArrays) {
 		ctx->nodes.layout.margin_l, ctx->nodes.layout.margin_t, ctx->nodes.layout.margin_r, ctx->nodes.layout.margin_b},
@@ -214,9 +217,9 @@ bool xent_set_margin(XentContext *ctx, XentNodeId node, XentInsets margin) {
 	return true;
 }
 
-bool xent_set_padding(XentContext *ctx, XentNodeId node, XentInsets padding) {
-	if (!xent_is_valid_node(ctx, node)) return false;
-	xent_write_insets(
+bool xent_setp(XentCtx *ctx, XentNodeId node, XentInsets padding) {
+	if (!xent_node_valid(ctx, node)) return false;
+	write_insets(
 	  padding,
 	  (XentLayoutInsetArrays) {
 		ctx->nodes.layout.padding_l, ctx->nodes.layout.padding_t, ctx->nodes.layout.padding_r,
@@ -227,39 +230,47 @@ bool xent_set_padding(XentContext *ctx, XentNodeId node, XentInsets padding) {
 	return true;
 }
 
-bool xent_set_gap(XentContext *ctx, XentNodeId node, float gap) {
-	if (!xent_is_valid_node(ctx, node)) return false;
-	ctx->nodes.layout.gap [node] = gap < 0.0f ? 0.0f : gap;
+bool xent_setgap(XentCtx *ctx, XentNodeId node, float gap) {
+	if (!xent_node_valid(ctx, node)) return false;
+	ctx->nodes.layout.gap [xent_node_index(node)] = gap < 0.0f ? 0.0f : gap;
 	xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
 	return true;
 }
 
-bool xent_set_z_index(XentContext *ctx, XentNodeId node, int32_t z_index) {
-	if (!xent_is_valid_node(ctx, node)) return false;
-	ctx->nodes.layout.z_index [node] = z_index;
+bool xent_setz(XentCtx *ctx, XentNodeId node, int32_t z_index) {
+	if (!xent_node_valid(ctx, node)) return false;
+	ctx->nodes.layout.z_index [xent_node_index(node)] = z_index;
 	return true;
 }
 
-int32_t xent_get_z_index(XentContext const *ctx, XentNodeId node) {
-	if (!xent_is_valid_node(ctx, node)) return 0;
-	return ctx->nodes.layout.z_index [node];
+int32_t xent_z(XentCtx const *ctx, XentNodeId node) {
+	if (!xent_node_valid(ctx, node)) return 0;
+	return ctx->nodes.layout.z_index [xent_node_index(node)];
 }
 
-bool xent_get_layout_rect(XentContext const *ctx, XentNodeId node, XentRect *out_rect) {
-	if (!xent_is_valid_node(ctx, node) || !out_rect) return false;
-	out_rect->x = ctx->nodes.layout.abs_x [node];
-	out_rect->y = ctx->nodes.layout.abs_y [node];
-	out_rect->w = ctx->nodes.layout.decided_w [node];
-	out_rect->h = ctx->nodes.layout.decided_h [node];
+bool xent_layout_rect(XentCtx const *ctx, XentNodeId node, XentRect *out_rect) {
+	if (!xent_node_valid(ctx, node) || !out_rect) return false;
+	out_rect->x = ctx->nodes.layout.abs_x [xent_node_index(node)];
+	out_rect->y = ctx->nodes.layout.abs_y [xent_node_index(node)];
+	out_rect->w = ctx->nodes.layout.decided_w [xent_node_index(node)];
+	out_rect->h = ctx->nodes.layout.decided_h [xent_node_index(node)];
 	return true;
 }
 
-XentNodeId xent_get_last_layout_root(XentContext const *ctx) {
+XentNodeId xent_layout_root(XentCtx const *ctx) {
 	if (!ctx) return XENT_NODE_INVALID;
 	return ctx->last_layout_root;
 }
 
-XentLayoutStrategy xent_get_last_layout_strategy(XentContext const *ctx) {
+XentLayoutStrategy xent_layout_strategy(XentCtx const *ctx) {
 	if (!ctx) return XENT_LAYOUT_STRATEGY_NONE;
 	return ( XentLayoutStrategy ) ctx->last_layout_strategy;
+}
+
+bool xent_setpos(XentCtx *ctx, XentNodeId node, XentPoint position) {
+	if (!xent_node_valid(ctx, node)) return false;
+	ctx->nodes.layout.abs_pos_x [xent_node_index(node)] = position.x;
+	ctx->nodes.layout.abs_pos_y [xent_node_index(node)] = position.y;
+	xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
+	return true;
 }

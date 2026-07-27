@@ -4,7 +4,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
 
 /* --- Toolchain contract -------------------------------------------------
  * The Xent stack builds as C23 (its own sources pass -std=c23 / /std:clatest).
@@ -16,34 +15,43 @@
  * *sources* use land in cl 19.40 (VS 2022 17.10); guard only that, by compiler
  * version — which never trips a probe. See the MSVC matrix in Xent/CODE_STYLE.md. */
 #if defined(_MSC_VER) && _MSC_VER < 1940
-#  error "Xent requires MSVC 19.40 (Visual Studio 2022 17.10) or newer."
+  #error "Xent requires MSVC 19.40 (Visual Studio 2022 17.10) or newer."
 #endif
 
-/* [[nodiscard]] only where the active standard accepts the [[...]] syntax
- * (C23, or C++17); in a C17/C11 probe it degrades to nothing. */
-#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L
-#  ifdef __has_c_attribute
-#    if __has_c_attribute(nodiscard)
-#      define XENT_NODISCARD [[nodiscard]]
-#    endif
-#  endif
-#elif defined(__cplusplus) && __cplusplus >= 201703L
-#  define XENT_NODISCARD [[nodiscard]]
+/* [[nodiscard]] only under C23; in a C17/C11 probe it degrades to nothing. */
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311l
+  #ifdef __has_c_attribute
+	#if __has_c_attribute(nodiscard)
+	  #define XENT_NODISCARD [[nodiscard]]
+	#endif
+  #endif
 #endif
 #ifndef XENT_NODISCARD
-#  define XENT_NODISCARD
+  #define XENT_NODISCARD
 #endif
 
-typedef uint32_t XentNodeId;
+/* Opaque generation-safe handle: low 32 bits = slot index (0 = null),
+ * high 32 bits = slot generation. Dense sidecar arrays index by
+ * xent_node_index(); never index by the raw handle value. */
+typedef uint64_t XentNodeId;
+typedef uint64_t XentObsId;
 
-#define XENT_NODE_INVALID (( XentNodeId ) 0)
+#define XENT_NODE_INVALID          (( XentNodeId ) 0)
+#define XENT_NODE_OBSERVER_INVALID (( XentObsId ) 0)
 
-struct XentContext;
-struct XentPlugin;
+static uint32_t inline xent_node_index(XentNodeId id) { return ( uint32_t ) id; }
+
+static uint32_t inline xent_node_generation(XentNodeId id) { return ( uint32_t ) (id >> 32); }
+
+static XentNodeId inline xent_make_node_id(uint32_t index, uint32_t generation) {
+	if (index == 0u) return XENT_NODE_INVALID;
+	return (( XentNodeId ) generation << 32) | ( XentNodeId ) index;
+}
+
+struct XentCtx;
 struct XentTextBackend;
 
-typedef struct XentContext     XentContext;
-typedef struct XentPlugin      XentPlugin;
+typedef struct XentCtx         XentCtx;
 typedef struct XentTextBackend XentTextBackend;
 
 typedef enum XentProtocol
@@ -123,16 +131,16 @@ typedef enum XentDirection
 	XENT_DIRECTION_RTL     = 2,
 } XentDirection;
 
-typedef enum XentSemanticRole
+typedef enum XentSemRole
 {
-	XENT_SEMANTIC_NONE = 0,
-	XENT_SEMANTIC_ROOT,
-	XENT_SEMANTIC_CONTAINER,
-	XENT_SEMANTIC_TEXT,
-	XENT_SEMANTIC_BUTTON,
-	XENT_SEMANTIC_IMAGE,
-	XENT_SEMANTIC_CUSTOM,
-} XentSemanticRole;
+	XENT_SEM_ROLE_NONE = 0,
+	XENT_SEM_ROLE_ROOT,
+	XENT_SEM_ROLE_CONTAINER,
+	XENT_SEM_ROLE_TEXT,
+	XENT_SEM_ROLE_BUTTON,
+	XENT_SEM_ROLE_IMAGE,
+	XENT_SEM_ROLE_CUSTOM,
+} XentSemRole;
 
 typedef enum XentDirtyFlags
 {
@@ -144,16 +152,16 @@ typedef enum XentDirtyFlags
 
 typedef enum XentLayoutStrategy
 {
-	XENT_LAYOUT_STRATEGY_NONE          = 0,
-	XENT_LAYOUT_STRATEGY_FULL_TREE     = 1,
-	XENT_LAYOUT_STRATEGY_DIRTY_SUBTREE = 2,
+	XENT_LAYOUT_STRATEGY_NONE  = 0,
+	XENT_LAYOUT_STRATEGY_FULL  = 1,
+	XENT_LAYOUT_STRATEGY_DIRTY = 2,
 } XentLayoutStrategy;
 
 typedef enum XentLineBreakPolicy
 {
-	XENT_LINE_BREAK_NO_WRAP   = 0,
-	XENT_LINE_BREAK_WORD_WRAP = 1,
-	XENT_LINE_BREAK_CHAR_WRAP = 2,
+	XENT_LINEBREAK_NOWRAP   = 0,
+	XENT_LINEBREAK_WORDWRAP = 1,
+	XENT_LINEBREAK_CHARWRAP = 2,
 } XentLineBreakPolicy;
 
 typedef enum XentMeasureMode
@@ -199,20 +207,29 @@ typedef enum XentChildOrder
 {
 	XENT_CHILD_ORDER_FORWARD = 0,
 	XENT_CHILD_ORDER_REVERSE = 1,
-	XENT_CHILD_ORDER_Z_ASC   = 2,
-	XENT_CHILD_ORDER_Z_DESC  = 3,
+	XENT_CHILD_ORDER_ZASC    = 2,
+	XENT_CHILD_ORDER_ZDESC   = 3,
 } XentChildOrder;
 
-typedef enum XentNodeLifecycleEvent
+typedef enum XentNodeEventKind
 {
 	XENT_NODE_EVENT_DESTROY  = 1,
 	XENT_NODE_EVENT_REPARENT = 2,
-} XentNodeLifecycleEvent;
+} XentNodeEventKind;
 
-typedef void (*XentNodeLifecycleFn)(
-  XentContext *ctx, XentNodeId node, XentNodeLifecycleEvent event, XentNodeId old_parent, XentNodeId new_parent,
-  void *userdata
-);
+typedef struct XentNodeEvent {
+	XentNodeId        node;
+	XentNodeId        old_parent;
+	XentNodeId        new_parent;
+	XentNodeEventKind event;
+} XentNodeEvent;
+
+typedef void (*XentNodeObsFn)(XentCtx *ctx, XentNodeEvent const *lifecycle, void *userdata);
+
+typedef struct XentNodeObs {
+	XentNodeObsFn notify;
+	void         *userdata;
+} XentNodeObs;
 
 typedef struct XentTextMetrics {
 	float    width;
@@ -220,27 +237,14 @@ typedef struct XentTextMetrics {
 	uint32_t line_count;
 } XentTextMetrics;
 
-/* Measure and shape requests intentionally remain separate API types even
-   though their fields match today. Real shaping backends are expected to grow
-   shape-only inputs such as script/language/features without changing the
-   measurement call surface. Keep common fields in sync until then. */
-typedef struct XentTextMeasureRequest {
+typedef struct XentTextMeasureReq {
 	char const         *text;
 	float               font_size;
 	uint16_t            font_weight; /**< CSS scale 100..900; 0 = default (400). */
 	float               width_constraint;
 	XentLineBreakPolicy line_break_policy;
 	XentMeasureMode     width_mode;
-} XentTextMeasureRequest;
-
-typedef struct XentTextShapeRequest {
-	char const         *text;
-	float               font_size;
-	uint16_t            font_weight; /**< CSS scale 100..900; 0 = default (400). */
-	float               width_constraint;
-	XentLineBreakPolicy line_break_policy;
-	XentMeasureMode     width_mode;
-} XentTextShapeRequest;
+} XentTextMeasureReq;
 
 typedef struct XentTextCacheStats {
 	uint64_t hits;
@@ -249,47 +253,7 @@ typedef struct XentTextCacheStats {
 	uint64_t evictions;
 } XentTextCacheStats;
 
-typedef struct XentShapedGlyph {
-	uint32_t codepoint;
-	uint32_t cluster;
-	uint32_t line_index;
-	float    advance;
-	float    offset_x;
-	float    offset_y;
-} XentShapedGlyph;
-
-typedef struct XentShapedRun {
-	uint32_t glyph_start;
-	uint32_t glyph_count;
-	uint32_t line_start;
-	uint32_t line_count;
-} XentShapedRun;
-
-typedef struct XentShapedLine {
-	uint32_t glyph_start;
-	uint32_t glyph_count;
-	float    width;
-} XentShapedLine;
-
-typedef struct XentShapingResult {
-	XentTextMetrics metrics;
-	uint32_t        glyph_count;
-	uint32_t        run_count;
-	uint32_t        line_count;
-	bool            truncated;
-} XentShapingResult;
-
-typedef struct XentTextShapeOutput {
-	XentShapedGlyph   *glyphs;
-	uint32_t           glyph_capacity;
-	XentShapedRun     *runs;
-	uint32_t           run_capacity;
-	XentShapedLine    *lines;
-	uint32_t           line_capacity;
-	XentShapingResult *result;
-} XentTextShapeOutput;
-
-typedef struct XentProfileStats {
+typedef struct XentProfStats {
 	double   swiftstack_total_ms;
 	double   swiftstack_collect_ms;
 	double   swiftstack_sort_ms;
@@ -310,15 +274,15 @@ typedef struct XentProfileStats {
 	uint64_t flex_layout_calls;
 	uint64_t grid_layout_calls;
 	uint64_t text_baseline_fallbacks;
-} XentProfileStats;
+} XentProfStats;
 
-typedef struct XentConfig {
+typedef struct XentCfg {
 	uint32_t initial_capacity;
 	float    mono_glyph_width;
 	float    mono_line_height;
-	bool     enable_simd;
 	float    point_scale_factor;
 	bool     enable_pixel_rounding;
-} XentConfig;
+	bool     enable_simd;
+} XentCfg;
 
 #endif

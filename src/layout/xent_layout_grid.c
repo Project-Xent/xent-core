@@ -70,36 +70,42 @@ static float grid_content_extent(float size, float before, float after) {
 }
 
 static void grid_commit_container(XentLayoutRequest const *request, GridLayoutFrame *frame) {
-	XentContext *ctx    = request->ctx;
-	XentNodeId   node   = request->node;
-	float        width  = 0.0f;
-	float        height = 0.0f;
+	XentCtx   *ctx    = request->ctx;
+	XentNodeId node   = request->node;
+	float      width  = 0.0f;
+	float      height = 0.0f;
 	xent_decide_node_box(
 	  ctx, node, request->available_w, request->available_h, request->definite_w, request->definite_h, &width, &height
 	);
 
-	ctx->nodes.layout.proposed_w [node] = request->available_w;
-	ctx->nodes.layout.proposed_h [node] = request->available_h;
-	ctx->nodes.layout.decided_w [node]  = width;
-	ctx->nodes.layout.decided_h [node]  = height;
-	ctx->nodes.layout.abs_x [node]      = request->origin_x + ctx->nodes.layout.abs_pos_x [node];
-	ctx->nodes.layout.abs_y [node]      = request->origin_y + ctx->nodes.layout.abs_pos_y [node];
+	ctx->nodes.layout.proposed_w [xent_node_index(node)] = request->available_w;
+	ctx->nodes.layout.proposed_h [xent_node_index(node)] = request->available_h;
+	ctx->nodes.layout.decided_w [xent_node_index(node)]  = width;
+	ctx->nodes.layout.decided_h [xent_node_index(node)]  = height;
+	ctx->nodes.layout.abs_x [xent_node_index(node)]
+	  = request->origin_x + ctx->nodes.layout.abs_pos_x [xent_node_index(node)];
+	ctx->nodes.layout.abs_y [xent_node_index(node)]
+	  = request->origin_y + ctx->nodes.layout.abs_pos_y [xent_node_index(node)];
 	xent_quantize_node_layout(ctx, node);
 
-	width            = ctx->nodes.layout.decided_w [node];
-	height           = ctx->nodes.layout.decided_h [node];
-	frame->node      = node;
-	frame->content_x = ctx->nodes.layout.abs_x [node] + ctx->nodes.layout.padding_l [node];
-	frame->content_y = ctx->nodes.layout.abs_y [node] + ctx->nodes.layout.padding_t [node];
-	frame->content_w
-	  = grid_content_extent(width, ctx->nodes.layout.padding_l [node], ctx->nodes.layout.padding_r [node]);
-	frame->content_h
-	  = grid_content_extent(height, ctx->nodes.layout.padding_t [node], ctx->nodes.layout.padding_b [node]);
+	width       = ctx->nodes.layout.decided_w [xent_node_index(node)];
+	height      = ctx->nodes.layout.decided_h [xent_node_index(node)];
+	frame->node = node;
+	frame->content_x
+	  = ctx->nodes.layout.abs_x [xent_node_index(node)] + ctx->nodes.layout.padding_l [xent_node_index(node)];
+	frame->content_y
+	  = ctx->nodes.layout.abs_y [xent_node_index(node)] + ctx->nodes.layout.padding_t [xent_node_index(node)];
+	frame->content_w = grid_content_extent(
+	  width, ctx->nodes.layout.padding_l [xent_node_index(node)], ctx->nodes.layout.padding_r [xent_node_index(node)]
+	);
+	frame->content_h = grid_content_extent(
+	  height, ctx->nodes.layout.padding_t [xent_node_index(node)], ctx->nodes.layout.padding_b [xent_node_index(node)]
+	);
 }
 
-static void grid_layout_fallback_children(XentContext *ctx, GridLayoutFrame const *frame) {
-	for (XentNodeId child = ctx->nodes.topology.first_child [frame->node]; child != XENT_NODE_INVALID;
-	  child               = ctx->nodes.topology.next_sibling [child])
+static void grid_layout_fallback_children(XentCtx *ctx, GridLayoutFrame const *frame) {
+	for (XentNodeId child = ctx->nodes.topology.first_child [xent_node_index(frame->node)]; child != XENT_NODE_INVALID;
+	  child               = ctx->nodes.topology.next_sibling [xent_node_index(child)])
 	{
 		xent_layout_dispatch_node(&(XentLayoutRequest) {
 		  ctx, child, frame->content_w, frame->content_h, frame->content_x, frame->content_y});
@@ -122,7 +128,7 @@ typedef struct GridTrackInit {
 	float          available;
 } GridTrackInit;
 
-static bool grid_init_tracks(XentContext *ctx, GridTrackSet *tracks, GridTrackInit init) {
+static bool grid_init_tracks(XentCtx *ctx, GridTrackSet *tracks, GridTrackInit init) {
 	*tracks           = (GridTrackSet) {0};
 	tracks->count     = init.count;
 	tracks->modes     = init.modes;
@@ -131,7 +137,7 @@ static bool grid_init_tracks(XentContext *ctx, GridTrackSet *tracks, GridTrackIn
 	tracks->available = init.available;
 	if (tracks->count == 0u) grid_init_default_track(tracks);
 
-	size_t bytes = sizeof(float) * ( size_t ) tracks->count;
+	size_t   bytes = sizeof(float) * ( size_t ) tracks->count;
 	uint8_t *block = ( uint8_t * ) xent_scratch_alloc(ctx, bytes + bytes, _Alignof(float));
 	if (!block) return false;
 
@@ -141,21 +147,27 @@ static bool grid_init_tracks(XentContext *ctx, GridTrackSet *tracks, GridTrackIn
 }
 
 static GridAxisPlacement
-grid_axis_placement(XentContext const *ctx, XentNodeId child, GridAxis axis, uint32_t track_count) {
-	uint16_t index = axis == GRID_AXIS_COLUMNS ? ctx->nodes.grid.column [child] : ctx->nodes.grid.row [child];
-	uint16_t span  = axis == GRID_AXIS_COLUMNS ? ctx->nodes.grid.column_span [child] : ctx->nodes.grid.row_span [child];
+grid_axis_placement(XentCtx const *ctx, XentNodeId child, GridAxis axis, uint32_t track_count) {
+	uint16_t index = axis == GRID_AXIS_COLUMNS ? ctx->nodes.grid.column [xent_node_index(child)]
+	                                           : ctx->nodes.grid.row [xent_node_index(child)];
+	uint16_t span  = axis == GRID_AXIS_COLUMNS ? ctx->nodes.grid.column_span [xent_node_index(child)]
+	                                           : ctx->nodes.grid.row_span [xent_node_index(child)];
 	index          = clamp_track(index, track_count);
 	span           = clamp_span(index, span, track_count);
 	return (GridAxisPlacement) {index, span};
 }
 
-static float grid_child_axis_need(XentContext *ctx, XentNodeId child, GridAxis axis, float available) {
+static float grid_child_axis_need(XentCtx *ctx, XentNodeId child, GridAxis axis, float available) {
 	float intrinsic_w = 0.0f;
 	float intrinsic_h = 0.0f;
 	xent_compute_intrinsic_size(ctx, child, available, available, &intrinsic_w, &intrinsic_h);
 	if (axis == GRID_AXIS_COLUMNS)
-		return intrinsic_w + ctx->nodes.layout.margin_l [child] + ctx->nodes.layout.margin_r [child];
-	return intrinsic_h + ctx->nodes.layout.margin_t [child] + ctx->nodes.layout.margin_b [child];
+		return intrinsic_w
+		     + ctx->nodes.layout.margin_l [xent_node_index(child)]
+		     + ctx->nodes.layout.margin_r [xent_node_index(child)];
+	return intrinsic_h
+	     + ctx->nodes.layout.margin_t [xent_node_index(child)]
+	     + ctx->nodes.layout.margin_b [xent_node_index(child)];
 }
 
 static float grid_span_non_auto_extent(GridTrackSet const *tracks, GridAxisPlacement placement) {
@@ -192,12 +204,12 @@ static void grid_apply_auto_track_need(GridTrackSet *tracks, GridAxisPlacement p
 	}
 }
 
-static void grid_resolve_auto_tracks(XentContext *ctx, XentNodeId container, GridTrackSet *tracks, GridAxis axis) {
+static void grid_resolve_auto_tracks(XentCtx *ctx, XentNodeId container, GridTrackSet *tracks, GridAxis axis) {
 	for (uint32_t i = 0u; i < tracks->count; ++i)
 		if (tracks->modes [i] == ( uint8_t ) XENT_GRID_AUTO) tracks->sizes [i] = 0.0f;
 
-	for (XentNodeId child = ctx->nodes.topology.first_child [container]; child != XENT_NODE_INVALID;
-	  child               = ctx->nodes.topology.next_sibling [child])
+	for (XentNodeId child = ctx->nodes.topology.first_child [xent_node_index(container)]; child != XENT_NODE_INVALID;
+	  child               = ctx->nodes.topology.next_sibling [xent_node_index(child)])
 	{
 		GridAxisPlacement placement = grid_axis_placement(ctx, child, axis, tracks->count);
 		float             need      = grid_child_axis_need(ctx, child, axis, tracks->available);
@@ -243,7 +255,7 @@ static void grid_resolve_star_tracks(GridTrackSet *tracks) {
 	}
 }
 
-static void grid_resolve_tracks(XentContext *ctx, XentNodeId container, GridTrackSet *tracks, GridAxis axis) {
+static void grid_resolve_tracks(XentCtx *ctx, XentNodeId container, GridTrackSet *tracks, GridAxis axis) {
 	for (uint32_t i = 0u; i < tracks->count; ++i) tracks->sizes [i] = 0.0f;
 	grid_resolve_auto_tracks(ctx, container, tracks, axis);
 	grid_resolve_pixel_tracks(tracks);
@@ -259,7 +271,7 @@ static void grid_compute_positions(GridTrackSet *tracks, float origin) {
 }
 
 static GridChildPlacement
-grid_child_placement(XentContext const *ctx, XentNodeId child, GridTrackSet const *columns, GridTrackSet const *rows) {
+grid_child_placement(XentCtx const *ctx, XentNodeId child, GridTrackSet const *columns, GridTrackSet const *rows) {
 	GridChildPlacement placement = {0};
 	placement.column             = grid_axis_placement(ctx, child, GRID_AXIS_COLUMNS, columns->count);
 	placement.row                = grid_axis_placement(ctx, child, GRID_AXIS_ROWS, rows->count);
@@ -267,15 +279,14 @@ grid_child_placement(XentContext const *ctx, XentNodeId child, GridTrackSet cons
 	placement.cell_y             = rows->positions [placement.row.index];
 	placement.cell_w   = span_extent(columns->sizes, placement.column.index, placement.column.span, columns->gap);
 	placement.cell_h   = span_extent(rows->sizes, placement.row.index, placement.row.span, rows->gap);
-	placement.margin_l = ctx->nodes.layout.margin_l [child];
-	placement.margin_t = ctx->nodes.layout.margin_t [child];
-	placement.margin_r = ctx->nodes.layout.margin_r [child];
-	placement.margin_b = ctx->nodes.layout.margin_b [child];
+	placement.margin_l = ctx->nodes.layout.margin_l [xent_node_index(child)];
+	placement.margin_t = ctx->nodes.layout.margin_t [xent_node_index(child)];
+	placement.margin_r = ctx->nodes.layout.margin_r [xent_node_index(child)];
+	placement.margin_b = ctx->nodes.layout.margin_b [xent_node_index(child)];
 	return placement;
 }
 
-static void
-grid_layout_child(XentContext *ctx, XentNodeId child, GridTrackSet const *columns, GridTrackSet const *rows) {
+static void grid_layout_child(XentCtx *ctx, XentNodeId child, GridTrackSet const *columns, GridTrackSet const *rows) {
 	GridChildPlacement placement = grid_child_placement(ctx, child, columns, rows);
 	float              child_w   = grid_content_extent(placement.cell_w, placement.margin_l, placement.margin_r);
 	float              child_h   = grid_content_extent(placement.cell_h, placement.margin_t, placement.margin_b);
@@ -285,25 +296,25 @@ grid_layout_child(XentContext *ctx, XentNodeId child, GridTrackSet const *column
 }
 
 static void grid_layout_children(
-  XentContext *ctx, GridLayoutFrame const *frame, GridTrackSet const *columns, GridTrackSet const *rows
+  XentCtx *ctx, GridLayoutFrame const *frame, GridTrackSet const *columns, GridTrackSet const *rows
 ) {
-	for (XentNodeId child = ctx->nodes.topology.first_child [frame->node]; child != XENT_NODE_INVALID;
-	  child               = ctx->nodes.topology.next_sibling [child])
+	for (XentNodeId child = ctx->nodes.topology.first_child [xent_node_index(frame->node)]; child != XENT_NODE_INVALID;
+	  child               = ctx->nodes.topology.next_sibling [xent_node_index(child)])
 	{
 		grid_layout_child(ctx, child, columns, rows);
 	}
 }
 
 void xent_layout_node_grid(XentLayoutRequest const *request) {
-	XentContext *ctx                = request->ctx;
-	XentNodeId   node               = request->node;
-	double       start              = xent_now_ms();
+	XentCtx   *ctx                  = request->ctx;
+	XentNodeId node                 = request->node;
+	double     start                = xent_now_ms();
 	ctx->profile.grid_layout_calls += 1u;
 	ctx->grid_scope_depth          += 1u;
 	GridLayoutFrame frame           = {0};
 	grid_commit_container(request, &frame);
 
-	XentGridDef const *def = ctx->nodes.grid.def [node];
+	XentGridDef const *def = ctx->nodes.grid.def [xent_node_index(node)];
 	if (!def) {
 		double children_start = xent_now_ms();
 		grid_layout_fallback_children(ctx, &frame);

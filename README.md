@@ -1,43 +1,63 @@
 # xent-core
 
-Pure-C23 layout, tree, text-shaping and semantics engine — the platform-independent
-core of the Xent UI stack. No platform headers, no external deps; builds standalone.
+The platform-neutral C23 foundation of Project Xent. It owns the generation-safe
+node tree, layout, dirty propagation, intrinsic measurement, text measurement,
+semantics, focus, lifecycle observers, and immutable display lists. It has no
+platform headers or external runtime dependency.
 
-It computes geometry only (box rects + shaped glyph positions); drawing is left to a
-backend (e.g. FluXent on Windows).
+Text shaping, rasterization, native input, and accessibility bridges belong to
+the platform host. Fluxent, for example, measures and renders text with
+DirectWrite.
 
-## Layout protocols
+## Contracts
 
-`XentProtocol`: `ABSOLUTE`, `FLEX`, `SWIFTSTACK`, `GRID`.
+- `XentNodeId` detects stale handles after a slot is reused.
+- `ABSOLUTE`, `FLEX`, `SWIFTSTACK`, and `GRID` are the built-in layout
+  protocols.
+- external content registers a measurement callback by full node handle;
+  destruction removes the registration.
+- display-list builders copy commands and payloads into an immutable,
+  platform-neutral list. Resources are opaque `XentResourceId` cookies.
+- node lifecycle notifications are allocation-free and support multiple
+  observers. Consumers keep their own sidecar stores.
+- the text backend measures only. The built-in backend is a deterministic
+  monospace fallback; hosts install a platform measurer.
 
-## Text
-
-Measurement/shaping goes through an injectable `XentTextBackend` (measure + shape
-function pointers). The default is a platform-independent monospace fallback; a host
-injects a real backend (FluXent uses DirectWrite) via `xent_set_text_backend`.
-
-## Use
+## Example
 
 ```c
-XentContext *ctx = xent_create_context(NULL);
-XentNodeId root  = xent_create_node(ctx);
-xent_set_protocol(ctx, root, XENT_PROTOCOL_FLEX);
+XentCtx *ctx = xent_ctx_create(NULL);
+XentNodeId root = xent_node_create(ctx);
+xent_setproto(ctx, root, XENT_PROTOCOL_FLEX);
 xent_layout(ctx, root, width, height);
 
 XentRect r;
-xent_get_layout_rect(ctx, node, &r);   // {x, y, w, h}
+xent_layout_rect(ctx, root, &r);
+xent_ctx_destroy(ctx);
 ```
 
 ## Build
 
 ```sh
-xmake                 # build the static lib
-xmake test            # run the unit-test gate
-xmake run demo_basic  # a demo
+xmake
+xmake test
+xmake run demo_basic
 ```
 
-Config options: `--simd=y` (experimental SIMD scaffolding), `--ispc=y` (ISPC backend,
-needs `ispc` on PATH).
+The scalar implementation is always available. The supported ISPC
+configuration is:
+
+```sh
+xmake f -m debug --ispc=y --simd=y --fault_injection=y
+xmake test
+```
+
+`--ispc=y` requires `ispc` on `PATH`; `--simd=y` selects the SIMD path in the
+default configuration. `XentCfg.enable_simd` can still disable it at runtime.
+CI runs both scalar and ISPC configurations. The current 163-case
+converter-supported Yoga corpus and allocation-failure tests are part of the
+ordinary gate. The Yoga snapshot contains 590 cases; unsupported cases are not
+included in that 163-case result.
 
 ## Consume (xmake)
 

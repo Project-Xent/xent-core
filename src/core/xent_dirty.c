@@ -1,20 +1,18 @@
 #include "../xent_internal.h"
+#include "../xent_alloc_internal.h"
 
-#if XENT_ISPC_ENABLED
-  #include "xent_ispc_kernels_ispc.h"
-#endif
-
-static bool xent_dirty_flags_are_direct(uint32_t flags) {
-	return (flags & (XENT_DIRTY_LAYOUT | XENT_DIRTY_SELF)) != 0u;
-}
-
-static bool xent_ensure_dirty_capacity(XentContext *ctx, uint32_t needed) {
+static bool ensure_dirty_capacity(XentCtx *ctx, uint32_t needed) {
 	if (needed <= ctx->dirty_capacity) return true;
 
-	uint32_t new_cap = ctx->dirty_capacity ? ctx->dirty_capacity * 2u : 64u;
-	while (new_cap < needed) new_cap *= 2u;
+	uint32_t new_cap = ctx->dirty_capacity ? ctx->dirty_capacity : 64u;
+	while (new_cap < needed) {
+		if (new_cap > UINT32_MAX / 2u) return false;
+		new_cap *= 2u;
+	}
 
-	XentNodeId *new_mem = ( XentNodeId * ) realloc(ctx->dirty_nodes, sizeof(XentNodeId) * ( size_t ) new_cap);
+	XentNodeId *new_mem = ( XentNodeId * ) xent_realloc_internal(
+	  XENT_ALLOC_TOPOLOGY_MUTATION, ctx->dirty_nodes, sizeof(XentNodeId) * ( size_t ) new_cap
+	);
 	if (!new_mem) return false;
 
 	ctx->dirty_nodes    = new_mem;
@@ -22,64 +20,59 @@ static bool xent_ensure_dirty_capacity(XentContext *ctx, uint32_t needed) {
 	return true;
 }
 
-static void xent_note_direct_dirty(XentContext *ctx, XentNodeId node, uint32_t old_flags, uint32_t new_flags) {
-	if (xent_dirty_flags_are_direct(old_flags) || !xent_dirty_flags_are_direct(new_flags)) return;
-	if (ctx->nodes.layout.dirty_queued [node]) return;
-	if (!xent_ensure_dirty_capacity(ctx, ctx->dirty_count + 1u)) return;
-	ctx->nodes.layout.dirty_queued [node] = 1u;
-	ctx->dirty_nodes [ctx->dirty_count++] = node;
+static void note_direct_dirty(XentCtx *ctx, uint32_t index, XentNodeId node, uint32_t flags) {
+	if (!xent_dirty_direct(flags)) return;
+	if (ctx->nodes.layout.dirty_queued [index]) return;
+	if (!ensure_dirty_capacity(ctx, ctx->dirty_count + 1u)) return;
+	ctx->nodes.layout.dirty_queued [index] = 1u;
+	ctx->dirty_nodes [ctx->dirty_count++]  = node;
 }
 
-void xent_mark_dirty(XentContext *ctx, XentNodeId node, uint32_t flags) {
-	if (!xent_is_valid_node(ctx, node)) return;
+void xent_mark_dirty(XentCtx *ctx, XentNodeId node, uint32_t flags) {
+	uint32_t index = xent_live_index(ctx, node);
+	if (!index) return;
 
-	uint32_t old_flags                    = ctx->nodes.layout.dirty_flags [node];
-	ctx->nodes.layout.dirty_flags [node] |= (flags | XENT_DIRTY_SELF);
-	xent_note_direct_dirty(ctx, node, old_flags, ctx->nodes.layout.dirty_flags [node]);
+	ctx->nodes.layout.dirty_flags [index] |= (flags | XENT_DIRTY_SELF);
+	note_direct_dirty(ctx, index, node, ctx->nodes.layout.dirty_flags [index]);
 
-	XentNodeId parent = ctx->nodes.topology.parent [node];
+	XentNodeId parent = ctx->nodes.topology.parent [index];
 	while (parent != XENT_NODE_INVALID) {
-		ctx->nodes.layout.dirty_flags [parent] |= XENT_DIRTY_SUBTREE;
-		parent                                  = ctx->nodes.topology.parent [parent];
+		uint32_t parent_index                         = xent_node_index(parent);
+		ctx->nodes.layout.dirty_flags [parent_index] |= XENT_DIRTY_SUBTREE;
+		parent                                        = ctx->nodes.topology.parent [parent_index];
 	}
 }
 
-uint32_t xent_get_dirty_flags(XentContext const *ctx, XentNodeId node) {
-	if (!xent_is_valid_node(ctx, node)) return XENT_DIRTY_NONE;
-	return ctx->nodes.layout.dirty_flags [node];
+uint32_t xent_node_dirty(XentCtx const *ctx, XentNodeId node) {
+	uint32_t index = xent_live_index(ctx, node);
+	if (!index) return XENT_DIRTY_NONE;
+	return ctx->nodes.layout.dirty_flags [index];
 }
 
-void xent_compact_dirty_nodes(XentContext *ctx) {
+void xent_compact_dirty_nodes(XentCtx *ctx) {
 	if (!ctx || ctx->dirty_count == 0u) return;
 
 	uint32_t write = 0u;
 	for (uint32_t i = 0u; i < ctx->dirty_count; ++i) {
-		XentNodeId node = ctx->dirty_nodes [i];
-		if (xent_is_valid_node(ctx, node) && xent_dirty_flags_are_direct(ctx->nodes.layout.dirty_flags [node])) {
-			ctx->nodes.layout.dirty_queued [node] = 1u;
-			ctx->dirty_nodes [write++] = node;
+		XentNodeId node  = ctx->dirty_nodes [i];
+		uint32_t   index = xent_live_index(ctx, node);
+		if (index && xent_dirty_direct(ctx->nodes.layout.dirty_flags [index])) {
+			ctx->nodes.layout.dirty_queued [index] = 1u;
+			ctx->dirty_nodes [write++]             = node;
+			continue;
 		}
-		else if (node != XENT_NODE_INVALID && node < ctx->nodes.capacity) {
-			ctx->nodes.layout.dirty_queued [node] = 0u;
-		}
+		uint32_t slot = xent_node_index(node);
+		if (slot != 0u && slot < ctx->nodes.capacity) ctx->nodes.layout.dirty_queued [slot] = 0u;
 	}
 	ctx->dirty_count = write;
 }
 
-void xent_clear_dirty_in_work_order(XentContext *ctx) {
-#if XENT_ISPC_ENABLED
-	if (ctx->work_count >= 64u) {
-		xent_ispc_scatter_zero_u32(ctx->nodes.layout.dirty_flags, ctx->work_order, ctx->work_count);
-		xent_compact_dirty_nodes(ctx);
-		return;
-	}
-#endif
+void xent_dirty_clear_order(XentCtx *ctx) {
 	for (uint32_t i = 0; i < ctx->work_count; ++i) {
-		XentNodeId node = ctx->work_order [i];
-		if (xent_is_valid_node(ctx, node)) {
-			ctx->nodes.layout.dirty_flags [node]  = XENT_DIRTY_NONE;
-			ctx->nodes.layout.dirty_queued [node] = 0u;
-		}
+		uint32_t index = xent_live_index(ctx, ctx->work_order [i]);
+		if (!index) continue;
+		ctx->nodes.layout.dirty_flags [index]  = XENT_DIRTY_NONE;
+		ctx->nodes.layout.dirty_queued [index] = 0u;
 	}
 	xent_compact_dirty_nodes(ctx);
 }

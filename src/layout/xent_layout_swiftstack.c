@@ -1,5 +1,7 @@
 #include "../xent_internal.h"
 
+#include "xent_layout_util.h"
+
 #if XENT_ISPC_ENABLED
   #include "xent_ispc_kernels_ispc.h"
 #endif
@@ -59,7 +61,7 @@ typedef struct StackChildRect {
 } StackChildRect;
 
 typedef struct StackChildRectRequest {
-	XentContext            *ctx;
+	XentCtx                *ctx;
 	StackLayoutFrame const *frame;
 	StackChildData const   *child;
 	StackBaselineInfo       baseline;
@@ -82,13 +84,7 @@ typedef struct StackReduceRequest {
 	bool               fixed;
 } StackReduceRequest;
 
-static float xent_swiftstack_clampf(float v, float min_v, float max_v) {
-	if (v < min_v) v = min_v;
-	if (v > max_v) v = max_v;
-	return v;
-}
-
-static int xent_compare_swiftstack_order_asc(void const *a, void const *b, void *context) {
+static int compare_swiftstack_order_asc(void const *a, void const *b, void *context) {
 	StackChildData const *children = ( StackChildData const * ) context;
 	uint32_t              ia       = *( uint32_t const * ) a;
 	uint32_t              ib       = *( uint32_t const * ) b;
@@ -101,70 +97,79 @@ static int xent_compare_swiftstack_order_asc(void const *a, void const *b, void 
 	return 0;
 }
 
-static bool xent_same_priority(float a, float b) {
+static bool same_priority(float a, float b) {
 	float const eps = 0.0001f;
 	return fabsf(a - b) <= eps;
 }
 
 static void stack_begin_layout(XentLayoutRequest const *request, StackLayoutFrame *frame) {
-	XentContext *ctx         = request->ctx;
-	XentNodeId   node        = request->node;
-	float        available_w = request->available_w;
-	float        available_h = request->available_h;
-	float        origin_x    = request->origin_x;
-	float        origin_y    = request->origin_y;
-	float        width       = 0.0f;
-	float        height      = 0.0f;
-	xent_decide_node_box(ctx, node, available_w, available_h, request->definite_w, request->definite_h, &width, &height);
+	XentCtx   *ctx         = request->ctx;
+	XentNodeId node        = request->node;
+	float      available_w = request->available_w;
+	float      available_h = request->available_h;
+	float      origin_x    = request->origin_x;
+	float      origin_y    = request->origin_y;
+	float      width       = 0.0f;
+	float      height      = 0.0f;
+	xent_decide_node_box(
+	  ctx, node, available_w, available_h, request->definite_w, request->definite_h, &width, &height
+	);
 
-	ctx->nodes.layout.proposed_w [node] = available_w;
-	ctx->nodes.layout.proposed_h [node] = available_h;
-	ctx->nodes.layout.decided_w [node]  = width;
-	ctx->nodes.layout.decided_h [node]  = height;
-	ctx->nodes.layout.abs_x [node]      = origin_x + ctx->nodes.layout.abs_pos_x [node];
-	ctx->nodes.layout.abs_y [node]      = origin_y + ctx->nodes.layout.abs_pos_y [node];
+	ctx->nodes.layout.proposed_w [xent_node_index(node)] = available_w;
+	ctx->nodes.layout.proposed_h [xent_node_index(node)] = available_h;
+	ctx->nodes.layout.decided_w [xent_node_index(node)]  = width;
+	ctx->nodes.layout.decided_h [xent_node_index(node)]  = height;
+	ctx->nodes.layout.abs_x [xent_node_index(node)] = origin_x + ctx->nodes.layout.abs_pos_x [xent_node_index(node)];
+	ctx->nodes.layout.abs_y [xent_node_index(node)] = origin_y + ctx->nodes.layout.abs_pos_y [xent_node_index(node)];
 	xent_quantize_node_layout(ctx, node);
 
-	width                 = ctx->nodes.layout.decided_w [node];
-	height                = ctx->nodes.layout.decided_h [node];
-	frame->node           = node;
-	frame->horizontal     = ctx->nodes.stack.axis [node] == ( uint8_t ) XENT_AXIS_HORIZONTAL;
-	frame->baseline_align = frame->horizontal && ctx->nodes.stack.align [node] == ( uint8_t ) XENT_STACK_ALIGN_BASELINE;
-	frame->content_x      = ctx->nodes.layout.abs_x [node] + ctx->nodes.layout.padding_l [node];
-	frame->content_y      = ctx->nodes.layout.abs_y [node] + ctx->nodes.layout.padding_t [node];
-	frame->content_w      = width - (ctx->nodes.layout.padding_l [node] + ctx->nodes.layout.padding_r [node]);
-	frame->content_h      = height - (ctx->nodes.layout.padding_t [node] + ctx->nodes.layout.padding_b [node]);
+	width             = ctx->nodes.layout.decided_w [xent_node_index(node)];
+	height            = ctx->nodes.layout.decided_h [xent_node_index(node)];
+	frame->node       = node;
+	frame->horizontal = ctx->nodes.stack.axis [xent_node_index(node)] == ( uint8_t ) XENT_AXIS_HORIZONTAL;
+	frame->baseline_align
+	  = frame->horizontal && ctx->nodes.stack.align [xent_node_index(node)] == ( uint8_t ) XENT_STACK_ALIGN_BASELINE;
+	frame->content_x
+	  = ctx->nodes.layout.abs_x [xent_node_index(node)] + ctx->nodes.layout.padding_l [xent_node_index(node)];
+	frame->content_y
+	  = ctx->nodes.layout.abs_y [xent_node_index(node)] + ctx->nodes.layout.padding_t [xent_node_index(node)];
+	frame->content_w
+	  = width
+	  - (ctx->nodes.layout.padding_l [xent_node_index(node)] + ctx->nodes.layout.padding_r [xent_node_index(node)]);
+	frame->content_h
+	  = height
+	  - (ctx->nodes.layout.padding_t [xent_node_index(node)] + ctx->nodes.layout.padding_b [xent_node_index(node)]);
 	if (frame->content_w < 0.0f) frame->content_w = 0.0f;
 	if (frame->content_h < 0.0f) frame->content_h = 0.0f;
 	frame->available_main  = frame->horizontal ? frame->content_w : frame->content_h;
 	frame->available_cross = frame->horizontal ? frame->content_h : frame->content_w;
-	frame->gap             = ctx->nodes.layout.gap [node];
+	frame->gap             = ctx->nodes.layout.gap [xent_node_index(node)];
 	if (frame->gap < 0.0f) frame->gap = 0.0f;
 }
 
-static bool stack_alloc_buffers(XentContext *ctx, uint32_t child_count, StackBuffers *buffers) {
-	size_t   children_bytes = sizeof(StackChildData) * ( size_t ) child_count;
-	size_t   order_bytes    = sizeof(uint32_t) * ( size_t ) child_count;
-	size_t   main_bytes     = sizeof(float) * ( size_t ) child_count;
-	size_t   align_order    = _Alignof(uint32_t);
-	size_t   align_main     = _Alignof(float);
-	size_t   total_bytes    = children_bytes + order_bytes + main_bytes;
+static bool stack_alloc_buffers(XentCtx *ctx, uint32_t child_count, StackBuffers *buffers) {
+	size_t children_bytes = sizeof(StackChildData) * ( size_t ) child_count;
+	size_t order_bytes    = sizeof(uint32_t) * ( size_t ) child_count;
+	size_t main_bytes     = sizeof(float) * ( size_t ) child_count;
+	size_t align_order    = _Alignof(uint32_t);
+	size_t align_main     = _Alignof(float);
+	size_t total_bytes    = children_bytes + order_bytes + main_bytes;
 #if XENT_ISPC_ENABLED
-	size_t   mask_offset    = xent_align_up_size(total_bytes, 1u);
-	size_t   weight_offset  = xent_align_up_size(mask_offset + child_count, align_main);
-	size_t   index_offset   = xent_align_up_size(weight_offset + main_bytes, align_order);
-	total_bytes             = index_offset + order_bytes;
+	size_t mask_offset   = xent_align_up_size(total_bytes, 1u);
+	size_t weight_offset = xent_align_up_size(mask_offset + child_count, align_main);
+	size_t index_offset  = xent_align_up_size(weight_offset + main_bytes, align_order);
+	total_bytes          = index_offset + order_bytes;
 #endif
-	uint8_t *block          = ( uint8_t * ) xent_scratch_alloc(ctx, total_bytes, _Alignof(StackChildData));
+	uint8_t *block = ( uint8_t * ) xent_scratch_alloc(ctx, total_bytes, _Alignof(StackChildData));
 	if (!block) return false;
 
 	buffers->children       = ( StackChildData * ) block;
 	buffers->priority_order = ( uint32_t * ) (block + children_bytes);
 	buffers->main_sizes     = ( float * ) (block + children_bytes + order_bytes);
 #if XENT_ISPC_ENABLED
-	buffers->ispc_mask      = block + mask_offset;
-	buffers->ispc_weights   = ( float * ) (block + weight_offset);
-	buffers->ispc_indices   = ( uint32_t * ) (block + index_offset);
+	buffers->ispc_mask    = block + mask_offset;
+	buffers->ispc_weights = ( float * ) (block + weight_offset);
+	buffers->ispc_indices = ( uint32_t * ) (block + index_offset);
 #else
 	( void ) align_order;
 	( void ) align_main;
@@ -175,56 +180,67 @@ static bool stack_alloc_buffers(XentContext *ctx, uint32_t child_count, StackBuf
 	return true;
 }
 
-static void stack_apply_child_margins(XentContext const *ctx, StackLayoutFrame const *frame, StackChildData *data) {
-	XentNodeId child   = data->node_id;
-	data->margin_lead  = frame->horizontal ? ctx->nodes.layout.margin_l [child] : ctx->nodes.layout.margin_t [child];
-	data->margin_trail = frame->horizontal ? ctx->nodes.layout.margin_r [child] : ctx->nodes.layout.margin_b [child];
-	data->margin_cross_lead
-	  = frame->horizontal ? ctx->nodes.layout.margin_t [child] : ctx->nodes.layout.margin_l [child];
-	data->margin_cross_trail
-	  = frame->horizontal ? ctx->nodes.layout.margin_b [child] : ctx->nodes.layout.margin_r [child];
+static void stack_apply_child_margins(XentCtx const *ctx, StackLayoutFrame const *frame, StackChildData *data) {
+	XentNodeId child         = data->node_id;
+	data->margin_lead        = frame->horizontal ? ctx->nodes.layout.margin_l [xent_node_index(child)]
+	                                             : ctx->nodes.layout.margin_t [xent_node_index(child)];
+	data->margin_trail       = frame->horizontal ? ctx->nodes.layout.margin_r [xent_node_index(child)]
+	                                             : ctx->nodes.layout.margin_b [xent_node_index(child)];
+	data->margin_cross_lead  = frame->horizontal ? ctx->nodes.layout.margin_t [xent_node_index(child)]
+	                                             : ctx->nodes.layout.margin_l [xent_node_index(child)];
+	data->margin_cross_trail = frame->horizontal ? ctx->nodes.layout.margin_b [xent_node_index(child)]
+	                                             : ctx->nodes.layout.margin_r [xent_node_index(child)];
 }
 
 static bool stack_axis_style(float style, float min_v, float max_v, float *out_value) {
 	if (isnan(style)) return false;
-	*out_value = xent_swiftstack_clampf(style, min_v, max_v);
+	*out_value = xent_clampf(style, min_v, max_v);
 	return true;
 }
 
-static bool stack_main_style(XentContext const *ctx, StackLayoutFrame const *frame, XentNodeId child, float *out_main) {
+static bool stack_main_style(XentCtx const *ctx, StackLayoutFrame const *frame, XentNodeId child, float *out_main) {
 	if (frame->horizontal)
 		return stack_axis_style(
-		  ctx->nodes.layout.style_w [child], ctx->nodes.layout.min_w [child], ctx->nodes.layout.max_w [child], out_main
+		  ctx->nodes.layout.style_w [xent_node_index(child)], ctx->nodes.layout.min_w [xent_node_index(child)],
+		  ctx->nodes.layout.max_w [xent_node_index(child)], out_main
 		);
 	return stack_axis_style(
-	  ctx->nodes.layout.style_h [child], ctx->nodes.layout.min_h [child], ctx->nodes.layout.max_h [child], out_main
+	  ctx->nodes.layout.style_h [xent_node_index(child)], ctx->nodes.layout.min_h [xent_node_index(child)],
+	  ctx->nodes.layout.max_h [xent_node_index(child)], out_main
 	);
 }
 
-static bool
-stack_cross_style(XentContext const *ctx, StackLayoutFrame const *frame, XentNodeId child, float *out_cross) {
+static bool stack_cross_style(XentCtx const *ctx, StackLayoutFrame const *frame, XentNodeId child, float *out_cross) {
 	if (frame->horizontal)
 		return stack_axis_style(
-		  ctx->nodes.layout.style_h [child], ctx->nodes.layout.min_h [child], ctx->nodes.layout.max_h [child], out_cross
+		  ctx->nodes.layout.style_h [xent_node_index(child)], ctx->nodes.layout.min_h [xent_node_index(child)],
+		  ctx->nodes.layout.max_h [xent_node_index(child)], out_cross
 		);
 	return stack_axis_style(
-	  ctx->nodes.layout.style_w [child], ctx->nodes.layout.min_w [child], ctx->nodes.layout.max_w [child], out_cross
+	  ctx->nodes.layout.style_w [xent_node_index(child)], ctx->nodes.layout.min_w [xent_node_index(child)],
+	  ctx->nodes.layout.max_w [xent_node_index(child)], out_cross
 	);
 }
 
 static float stack_intrinsic_cross(
-  XentContext const *ctx, StackLayoutFrame const *frame, XentNodeId child, float intrinsic_w, float intrinsic_h
+  XentCtx const *ctx, StackLayoutFrame const *frame, XentNodeId child, float intrinsic_w, float intrinsic_h
 ) {
 	if (frame->horizontal)
-		return xent_swiftstack_clampf(intrinsic_h, ctx->nodes.layout.min_h [child], ctx->nodes.layout.max_h [child]);
-	return xent_swiftstack_clampf(intrinsic_w, ctx->nodes.layout.min_w [child], ctx->nodes.layout.max_w [child]);
+		return xent_clampf(
+		  intrinsic_h, ctx->nodes.layout.min_h [xent_node_index(child)],
+		  ctx->nodes.layout.max_h [xent_node_index(child)]
+		);
+	return xent_clampf(
+	  intrinsic_w, ctx->nodes.layout.min_w [xent_node_index(child)], ctx->nodes.layout.max_w [xent_node_index(child)]
+	);
 }
 
-static void stack_resolve_child_sizes(XentContext *ctx, StackLayoutFrame const *frame, StackChildData *data) {
-	float intrinsic_w    = 0.0f;
-	float intrinsic_h    = 0.0f;
-	bool  fixed_main     = stack_main_style(ctx, frame, data->node_id, &data->preferred_main);
-	bool  need_intrinsic = !fixed_main || (frame->baseline_align && isnan(ctx->nodes.layout.style_h [data->node_id]));
+static void stack_resolve_child_sizes(XentCtx *ctx, StackLayoutFrame const *frame, StackChildData *data) {
+	float intrinsic_w = 0.0f;
+	float intrinsic_h = 0.0f;
+	bool  fixed_main  = stack_main_style(ctx, frame, data->node_id, &data->preferred_main);
+	bool  need_intrinsic
+	  = !fixed_main || (frame->baseline_align && isnan(ctx->nodes.layout.style_h [xent_node_index(data->node_id)]));
 
 	if (need_intrinsic)
 		xent_compute_intrinsic_size(ctx, data->node_id, frame->content_w, frame->content_h, &intrinsic_w, &intrinsic_h);
@@ -234,21 +250,20 @@ static void stack_resolve_child_sizes(XentContext *ctx, StackLayoutFrame const *
 		data->preferred_cross = stack_intrinsic_cross(ctx, frame, data->node_id, intrinsic_w, intrinsic_h);
 }
 
-static StackChildData stack_describe_child(XentContext *ctx, StackLayoutFrame const *frame, XentNodeId child) {
+static StackChildData stack_describe_child(XentCtx *ctx, StackLayoutFrame const *frame, XentNodeId child) {
 	StackChildData data = {0};
 	data.node_id        = child;
-	data.spacer         = ctx->nodes.stack.spacer [child] != 0u;
-	data.priority       = ctx->nodes.stack.priority [child];
+	data.spacer         = ctx->nodes.stack.spacer [xent_node_index(child)] != 0u;
+	data.priority       = ctx->nodes.stack.priority [xent_node_index(child)];
 	stack_apply_child_margins(ctx, frame, &data);
 	if (!data.spacer) stack_resolve_child_sizes(ctx, frame, &data);
 	return data;
 }
 
-static StackCollectStats stack_collect_children(
-  XentContext *ctx, StackLayoutFrame const *frame, StackBuffers const *buffers, uint32_t child_count
-) {
+static StackCollectStats
+stack_collect_children(XentCtx *ctx, StackLayoutFrame const *frame, StackBuffers const *buffers, uint32_t child_count) {
 	StackCollectStats stats = {0};
-	XentNodeId        child = ctx->nodes.topology.first_child [frame->node];
+	XentNodeId        child = ctx->nodes.topology.first_child [xent_node_index(frame->node)];
 	while (child != XENT_NODE_INVALID && stats.count < child_count) {
 		ctx->profile.sibling_scans            += 1u;
 		StackChildData data                    = stack_describe_child(ctx, frame, child);
@@ -258,7 +273,7 @@ static StackCollectStats stack_collect_children(
 		stats.sum_min                         += data.preferred_main + data.margin_lead + data.margin_trail;
 		if (data.spacer) stats.spacer_count += 1u;
 		if (!data.fixed_main && data.priority > 0.0f) stats.priority_sum += data.priority;
-		child        = ctx->nodes.topology.next_sibling [child];
+		child        = ctx->nodes.topology.next_sibling [xent_node_index(child)];
 		stats.count += 1u;
 	}
 	if (stats.count > 1u) stats.sum_min += frame->gap * ( float ) (stats.count - 1u);
@@ -267,8 +282,8 @@ static StackCollectStats stack_collect_children(
 
 #if XENT_ISPC_ENABLED
 static bool
-stack_expand_spacers_ispc(XentContext *ctx, StackBuffers const *buffers, StackCollectStats const *stats, float each) {
-	if (stats->count < 32u) return false;
+stack_expand_spacers_ispc(XentCtx *ctx, StackBuffers const *buffers, StackCollectStats const *stats, float each) {
+	if (!ctx->config.enable_simd || stats->count < 32u) return false;
 
 	uint8_t *spacer_mask = buffers->ispc_mask;
 	if (!spacer_mask) return false;
@@ -280,7 +295,7 @@ stack_expand_spacers_ispc(XentContext *ctx, StackBuffers const *buffers, StackCo
 #endif
 
 static void
-stack_expand_spacers(XentContext *ctx, StackBuffers const *buffers, StackCollectStats const *stats, float each) {
+stack_expand_spacers(XentCtx *ctx, StackBuffers const *buffers, StackCollectStats const *stats, float each) {
 #if XENT_ISPC_ENABLED
 	if (stack_expand_spacers_ispc(ctx, buffers, stats, each)) return;
 #else
@@ -292,9 +307,9 @@ stack_expand_spacers(XentContext *ctx, StackBuffers const *buffers, StackCollect
 
 #if XENT_ISPC_ENABLED
 static bool stack_expand_priorities_ispc(
-  XentContext *ctx, StackBuffers const *buffers, StackCollectStats const *stats, float remainder
+  XentCtx *ctx, StackBuffers const *buffers, StackCollectStats const *stats, float remainder
 ) {
-	if (stats->count < 32u) return false;
+	if (!ctx->config.enable_simd || stats->count < 32u) return false;
 
 	uint8_t *prio_mask    = buffers->ispc_mask;
 	float   *prio_weights = buffers->ispc_weights;
@@ -313,9 +328,8 @@ static bool stack_expand_priorities_ispc(
 }
 #endif
 
-static void stack_expand_priorities(
-  XentContext *ctx, StackBuffers const *buffers, StackCollectStats const *stats, float remainder
-) {
+static void
+stack_expand_priorities(XentCtx *ctx, StackBuffers const *buffers, StackCollectStats const *stats, float remainder) {
 #if XENT_ISPC_ENABLED
 	if (stack_expand_priorities_ispc(ctx, buffers, stats, remainder)) return;
 #else
@@ -337,9 +351,9 @@ stack_collect_reduce_indices(StackBuffers const *buffers, StackPriorityGroup gro
 	return count;
 }
 
-static bool stack_reduce_members_ispc(XentContext *ctx, StackBuffers const *buffers, StackReduceRequest request) {
+static bool stack_reduce_members_ispc(XentCtx *ctx, StackBuffers const *buffers, StackReduceRequest request) {
 	uint32_t group_size = request.group.end - request.group.start;
-	if (group_size < 16u) return false;
+	if (!ctx->config.enable_simd || group_size < 16u) return false;
 	uint32_t *indices = buffers->ispc_indices;
 	if (!indices) return false;
 	uint32_t count = stack_collect_reduce_indices(buffers, request.group, request.fixed, indices);
@@ -348,7 +362,7 @@ static bool stack_reduce_members_ispc(XentContext *ctx, StackBuffers const *buff
 	return true;
 }
 #else
-static bool stack_reduce_members_ispc(XentContext *ctx, StackBuffers const *buffers, StackReduceRequest request) {
+static bool stack_reduce_members_ispc(XentCtx *ctx, StackBuffers const *buffers, StackReduceRequest request) {
 	( void ) ctx;
 	( void ) buffers;
 	( void ) request;
@@ -369,17 +383,17 @@ static void stack_reduce_members_scalar(
 	}
 }
 
-static void stack_reduce_members(XentContext *ctx, StackBuffers const *buffers, StackReduceRequest request) {
+static void stack_reduce_members(XentCtx *ctx, StackBuffers const *buffers, StackReduceRequest request) {
 	if (request.reduce_amount <= 0.0f || request.total <= 0.0f) return;
 	if (stack_reduce_members_ispc(ctx, buffers, request)) return;
 	stack_reduce_members_scalar(buffers, request.group, request.fixed, request.reduce_amount, request.total);
 }
 
-static void stack_sort_by_priority(XentContext *ctx, StackBuffers const *buffers, uint32_t count) {
+static void stack_sort_by_priority(XentCtx *ctx, StackBuffers const *buffers, uint32_t count) {
 	double sort_start_ms     = xent_now_ms();
 	ctx->profile.sort_calls += 1u;
 	xent_sort_r(
-	  buffers->priority_order, ( size_t ) count, sizeof(uint32_t), xent_compare_swiftstack_order_asc,
+	  buffers->priority_order, ( size_t ) count, sizeof(uint32_t), compare_swiftstack_order_asc,
 	  ( void * ) buffers->children
 	);
 	ctx->profile.swiftstack_sort_ms += (xent_now_ms() - sort_start_ms);
@@ -390,7 +404,7 @@ stack_next_priority_group(StackBuffers const *buffers, StackCollectStats const *
 	StackPriorityGroup group    = {start, start, 0.0f, 0.0f, 0.0f};
 	float              priority = buffers->children [buffers->priority_order [start]].priority;
 	while (group.end < stats->count
-		   && xent_same_priority(buffers->children [buffers->priority_order [group.end]].priority, priority))
+		   && same_priority(buffers->children [buffers->priority_order [group.end]].priority, priority))
 	{
 		uint32_t child_index  = buffers->priority_order [group.end];
 		float    size         = buffers->main_sizes [child_index];
@@ -402,9 +416,8 @@ stack_next_priority_group(StackBuffers const *buffers, StackCollectStats const *
 	return group;
 }
 
-static void stack_reduce_priority_group(
-  XentContext *ctx, StackBuffers const *buffers, StackPriorityGroup group, float group_reduce
-) {
+static void
+stack_reduce_priority_group(XentCtx *ctx, StackBuffers const *buffers, StackPriorityGroup group, float group_reduce) {
 	float reduce_flexible = group_reduce < group.flexible_total ? group_reduce : group.flexible_total;
 	stack_reduce_members(ctx, buffers, (StackReduceRequest) {group, reduce_flexible, group.flexible_total, false});
 	stack_reduce_members(
@@ -413,8 +426,11 @@ static void stack_reduce_priority_group(
 }
 
 static void
-stack_shrink_sizes(XentContext *ctx, StackBuffers const *buffers, StackCollectStats const *stats, float deficit) {
-	float reducible_total = xent_simd_sum_f32(buffers->main_sizes, stats->count);
+stack_shrink_sizes(XentCtx *ctx, StackBuffers const *buffers, StackCollectStats const *stats, float deficit) {
+	float reducible_total = 0.0f;
+	if (ctx->config.enable_simd) reducible_total = xent_simd_sum_f32(buffers->main_sizes, stats->count);
+	else
+		for (uint32_t i = 0u; i < stats->count; ++i) reducible_total += buffers->main_sizes [i];
 	if (deficit >= reducible_total) {
 		xent_simd_fill_f32(buffers->main_sizes, stats->count, 0.0f);
 		return;
@@ -434,7 +450,7 @@ stack_shrink_sizes(XentContext *ctx, StackBuffers const *buffers, StackCollectSt
 }
 
 static void stack_distribute_main_sizes(
-  XentContext *ctx, StackLayoutFrame const *frame, StackBuffers const *buffers, StackCollectStats const *stats
+  XentCtx *ctx, StackLayoutFrame const *frame, StackBuffers const *buffers, StackCollectStats const *stats
 ) {
 	float remainder = frame->available_main - stats->sum_min;
 	if (remainder > 0.0f && stats->spacer_count > 0u) {
@@ -450,7 +466,7 @@ static float stack_fallback_cross(StackLayoutFrame const *frame, StackChildData 
 }
 
 static float stack_baseline_target(
-  XentContext *ctx, StackLayoutFrame const *frame, StackBuffers const *buffers, uint32_t count, bool *out_has_baseline
+  XentCtx *ctx, StackLayoutFrame const *frame, StackBuffers const *buffers, uint32_t count, bool *out_has_baseline
 ) {
 	float target     = 0.0f;
 	bool  has_target = false;
@@ -463,7 +479,7 @@ static float stack_baseline_target(
 		StackChildData const *child = &buffers->children [i];
 		if (child->spacer) continue;
 		float cross_size = child->preferred_cross > 0.0f ? child->preferred_cross : stack_fallback_cross(frame, child);
-		float baseline   = xent_estimate_text_baseline(ctx, child->node_id, cross_size);
+		float baseline   = xent_node_baseline(ctx, child->node_id, cross_size);
 		float candidate  = child->margin_cross_lead + baseline;
 		if (!has_target || candidate > target) target = candidate;
 		has_target = true;
@@ -478,15 +494,15 @@ static float stack_child_cross_size(StackLayoutFrame const *frame, StackChildDat
 }
 
 static float stack_baseline_cross_offset(
-  XentContext *ctx, StackLayoutFrame const *frame, StackChildData const *child, float child_h, float baseline_target
+  XentCtx *ctx, StackLayoutFrame const *frame, StackChildData const *child, float child_h, float baseline_target
 ) {
 	float cross_free = frame->available_cross - child_h - child->margin_cross_lead - child->margin_cross_trail;
 	if (cross_free < 0.0f) cross_free = 0.0f;
-	float baseline   = xent_estimate_text_baseline(ctx, child->node_id, child_h);
+	float baseline   = xent_node_baseline(ctx, child->node_id, child_h);
 	float desired    = baseline_target - baseline;
 	float min_offset = child->margin_cross_lead;
 	float max_offset = child->margin_cross_lead + cross_free;
-	return xent_swiftstack_clampf(desired, min_offset, max_offset);
+	return xent_clampf(desired, min_offset, max_offset);
 }
 
 static StackChildRect stack_horizontal_child_rect(StackChildRectRequest const *request) {
@@ -528,7 +544,7 @@ static StackChildRect stack_child_rect(StackChildRectRequest const *request) {
 }
 
 static void
-stack_layout_children(XentContext *ctx, StackLayoutFrame const *frame, StackBuffers const *buffers, uint32_t count) {
+stack_layout_children(XentCtx *ctx, StackLayoutFrame const *frame, StackBuffers const *buffers, uint32_t count) {
 	StackBaselineInfo baseline = {0};
 	baseline.target            = stack_baseline_target(ctx, frame, buffers, count, &baseline.active);
 	float cursor               = frame->horizontal ? frame->content_x : frame->content_y;
@@ -539,7 +555,8 @@ stack_layout_children(XentContext *ctx, StackLayoutFrame const *frame, StackBuff
 		float          child_main    = buffers->main_sizes [i];
 		StackChildRect rect
 		  = stack_child_rect(&(StackChildRectRequest) {ctx, frame, child, baseline, child_main, cursor});
-		xent_layout_dispatch_node(&(XentLayoutRequest) {ctx, child->node_id, rect.w, rect.h, rect.x, rect.y, true, true});
+		xent_layout_dispatch_node(&(XentLayoutRequest) {
+		  ctx, child->node_id, rect.w, rect.h, rect.x, rect.y, true, true});
 
 		cursor += child_main + child->margin_trail;
 		if (i + 1u < count) cursor += frame->gap;
@@ -547,16 +564,16 @@ stack_layout_children(XentContext *ctx, StackLayoutFrame const *frame, StackBuff
 }
 
 void xent_layout_node_swiftstack(XentLayoutRequest const *request) {
-	XentContext *ctx                      = request->ctx;
-	XentNodeId   node                     = request->node;
-	double       swiftstack_start_ms      = xent_now_ms();
+	XentCtx   *ctx                        = request->ctx;
+	XentNodeId node                       = request->node;
+	double     swiftstack_start_ms        = xent_now_ms();
 	ctx->profile.swiftstack_layout_calls += 1u;
 	ctx->swiftstack_scope_depth          += 1u;
 
 	StackLayoutFrame frame                = {0};
 	stack_begin_layout(request, &frame);
 
-	uint32_t child_count = ctx->nodes.topology.child_count [node];
+	uint32_t child_count = ctx->nodes.topology.child_count [xent_node_index(node)];
 	if (child_count > 0u) {
 		StackBuffers buffers = {0};
 		if (stack_alloc_buffers(ctx, child_count, &buffers)) {

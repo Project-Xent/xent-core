@@ -1,6 +1,6 @@
 {
-  "converted": 82,
-  "skipped": 508,
+  "converted": 81,
+  "skipped": 509,
   "converted_cases": [
     {
       "source": "generated/YGAbsolutePositionTest.cpp",
@@ -406,14 +406,15 @@
       "source": "generated/YGPercentageTest.cpp",
       "test": "percent_of_max_cross_unstretched",
       "function": "test_0191_percent_of_max_cross_unstretched"
-    },
-    {
-      "source": "generated/YGSizeOverflowTest.cpp",
-      "test": "nested_overflowing_child_in_constraint_parent",
-      "function": "test_0203_nested_overflowing_child_in_constraint_parent"
     }
   ],
   "skipped_cases": [
+    {
+      "source": "generated/YGSizeOverflowTest.cpp",
+      "test": "nested_overflowing_child_in_constraint_parent",
+      "function": "test_0203_nested_overflowing_child_in_constraint_parent",
+      "reason": "excluded Yoga-specific flex-shrink:0 behavior"
+    },
     {
       "source": "generated/YGAbsolutePositionTest.cpp",
       "test": "absolute_layout_width_height_start_top",

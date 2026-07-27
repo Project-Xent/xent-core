@@ -1,27 +1,28 @@
 # Yoga Correctness Tests
 
 xent-native C ports of Yoga's generated layout correctness cases, exercising the
-public xent API for CSS conformance.
+public xent API for CSS conformance. The imported upstream snapshot contains 590
+cases; neither executable below represents all 590.
 
-The runnable target is `test_yoga_generated`, wired into `xmake test`.
+Both runnable targets are wired into `xmake test`.
 
 Files:
-- `test_yoga_generated.c`: native C conformance cases using the public xent API.
-- `yoga_generated_manifest.json`: case manifest listing converted and skipped cases.
+- `test_yoga_generated.c`: the manually accepted 81-case native corpus.
+- `yoga_generated_manifest.json`: its 81 accepted and 509 skipped cases.
+- `test_yoga_supported.c`: the 196 cases expressible by the current converter.
 - `LICENSE-yoga`: upstream Yoga MIT license for the ported test source.
 
-Only cases expressible against current xent semantics and passing native
-validation are executable here. Unsupported API features and intentional
-semantic differences (xent follows CSS defaults) are recorded as skipped cases
-in the manifest rather than kept as failing tests.
+Unsupported Yoga APIs and intentional semantic differences are not compiled by
+the corresponding corpus. A 196/196 result therefore means every case admitted
+by the current converter passed; it is not a claim that all 590 upstream cases
+passed.
 
-## Converter
+`test_yoga_supported.c` is an offline-generated fixture. Regenerate it from a
+Yoga checkout with:
 
-`convert_yoga.py` parses Yoga's `generated/YG*Test.cpp` cases and emits
-`test_yoga_full.c` (target `test_yoga_full`). It reports pass/fail counts rather
-than all-pass, so it is not part of `xmake test`. Regenerate and run:
-
+```text
+xmake gen-yoga --source=/path/to/yoga/tests/generated
 ```
-python tests/yoga/convert_yoga.py <path-to-yoga>/tests/generated
-xmake build test_yoga_full && xmake run test_yoga_full
-```
+
+The Lua generator requires clang-format 22.1.2 and rejects Yoga cases whose
+operations cannot be represented by the current public xent API.

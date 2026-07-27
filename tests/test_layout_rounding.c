@@ -1,35 +1,35 @@
 #include "test_common.h"
 
 int main(void) {
-	XentContext *ctx = xent_create_context(NULL);
+	XentCtx *ctx = xent_ctx_create(NULL);
 	TEST_ASSERT(ctx != NULL);
 
-	XentNodeId root  = xent_create_node(ctx);
-	XentNodeId child = xent_create_node(ctx);
+	XentNodeId root  = xent_node_create(ctx);
+	XentNodeId child = xent_node_create(ctx);
 	TEST_ASSERT(root != XENT_NODE_INVALID);
 	TEST_ASSERT(child != XENT_NODE_INVALID);
 
-	TEST_ASSERT(xent_set_protocol(ctx, root, XENT_PROTOCOL_ABSOLUTE));
-	TEST_ASSERT(xent_set_size(ctx, root, (XentSize) {10.3f, 20.7f}));
-	TEST_ASSERT(xent_set_size(ctx, child, (XentSize) {3.26f, 4.74f}));
-	TEST_ASSERT(xent_set_absolute_position(ctx, child, (XentPoint) {1.24f, 2.74f}));
-	TEST_ASSERT(xent_append_child(ctx, root, child));
+	TEST_ASSERT(xent_setproto(ctx, root, XENT_PROTOCOL_ABSOLUTE));
+	TEST_ASSERT(xent_setsize(ctx, root, (XentSize) {10.3f, 20.7f}));
+	TEST_ASSERT(xent_setsize(ctx, child, (XentSize) {3.26f, 4.74f}));
+	TEST_ASSERT(xent_setpos(ctx, child, (XentPoint) {1.24f, 2.74f}));
+	TEST_ASSERT(xent_node_append(ctx, root, child));
 
 	TEST_ASSERT(xent_layout(ctx, root, 10.3f, 20.7f));
 
 	XentRect root_rect  = {0};
 	XentRect child_rect = {0};
-	TEST_ASSERT(xent_get_layout_rect(ctx, root, &root_rect));
-	TEST_ASSERT(xent_get_layout_rect(ctx, child, &child_rect));
+	TEST_ASSERT(xent_layout_rect(ctx, root, &root_rect));
+	TEST_ASSERT(xent_layout_rect(ctx, child, &child_rect));
 	TEST_ASSERT(test_float_near(root_rect.w, 10.3f, 0.001f));
 	TEST_ASSERT(test_float_near(child_rect.x, 1.24f, 0.001f));
 
-	TEST_ASSERT(xent_set_point_scale_factor(ctx, 2.0f));
-	TEST_ASSERT(xent_set_pixel_rounding_enabled(ctx, true));
+	TEST_ASSERT(xent_setscale(ctx, 2.0f));
+	TEST_ASSERT(xent_setrounding(ctx, true));
 	TEST_ASSERT(xent_layout(ctx, root, 10.3f, 20.7f));
 
-	TEST_ASSERT(xent_get_layout_rect(ctx, root, &root_rect));
-	TEST_ASSERT(xent_get_layout_rect(ctx, child, &child_rect));
+	TEST_ASSERT(xent_layout_rect(ctx, root, &root_rect));
+	TEST_ASSERT(xent_layout_rect(ctx, child, &child_rect));
 	TEST_ASSERT(test_float_near(root_rect.w, 10.5f, 0.001f));
 	TEST_ASSERT(test_float_near(root_rect.h, 20.5f, 0.001f));
 	TEST_ASSERT(test_float_near(child_rect.x, 1.0f, 0.001f));
@@ -39,11 +39,11 @@ int main(void) {
 	 * so h = 7.5 - 2.5 = 5.0. (x/w coincide under both schemes; only h exposes it.) */
 	TEST_ASSERT(test_float_near(child_rect.h, 5.0f, 0.001f));
 
-	TEST_ASSERT(xent_set_point_scale_factor(ctx, 4.0f));
+	TEST_ASSERT(xent_setscale(ctx, 4.0f));
 	TEST_ASSERT(xent_layout(ctx, root, 10.3f, 20.7f));
-	TEST_ASSERT(xent_get_layout_rect(ctx, root, &root_rect));
+	TEST_ASSERT(xent_layout_rect(ctx, root, &root_rect));
 	TEST_ASSERT(test_float_near(root_rect.w, 10.25f, 0.001f));
 
-	xent_destroy_context(ctx);
+	xent_ctx_destroy(ctx);
 	return 0;
 }

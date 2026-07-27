@@ -40,15 +40,15 @@ static void free_baseline_tree(BaselineNode *root) {
 	root->children = NULL;
 }
 
-static XentNodeId make_xent_tree(XentContext *ctx, uint32_t node_count) {
-	XentNodeId root = xent_create_node(ctx);
-	xent_set_protocol(ctx, root, XENT_PROTOCOL_FLEX);
-	xent_set_flex_direction(ctx, root, XENT_FLEX_COLUMN);
-	xent_set_size(ctx, root, (XentSize) {1000.0f, 800.0f});
+static XentNodeId make_xent_tree(XentCtx *ctx, uint32_t node_count) {
+	XentNodeId root = xent_node_create(ctx);
+	xent_setproto(ctx, root, XENT_PROTOCOL_FLEX);
+	xent_setflexdir(ctx, root, XENT_FLEX_COLUMN);
+	xent_setsize(ctx, root, (XentSize) {1000.0f, 800.0f});
 	for (uint32_t i = 0; i < node_count; ++i) {
-		XentNodeId child = xent_create_node(ctx);
-		xent_set_size(ctx, child, (XentSize) {NAN, 20.0f});
-		xent_append_child(ctx, root, child);
+		XentNodeId child = xent_node_create(ctx);
+		xent_setsize(ctx, child, (XentSize) {NAN, 20.0f});
+		xent_node_append(ctx, root, child);
 	}
 	return root;
 }
@@ -63,17 +63,17 @@ int main(void) {
 		BaselineNode baseline       = make_baseline_tree(n);
 		double       baseline_start = now_ms();
 		for (int it = 0; it < iterations; ++it) baseline_layout(&baseline, 0.0f, 0.0f, 1000.0f, 800.0f);
-		double       baseline_elapsed = now_ms() - baseline_start;
+		double     baseline_elapsed = now_ms() - baseline_start;
 
-		XentContext *ctx              = xent_create_context(NULL);
-		XentNodeId   root             = make_xent_tree(ctx, n);
-		double       xent_start       = now_ms();
+		XentCtx   *ctx              = xent_ctx_create(NULL);
+		XentNodeId root             = make_xent_tree(ctx, n);
+		double     xent_start       = now_ms();
 		for (int it = 0; it < iterations; ++it) xent_layout(ctx, root, 1000.0f, 800.0f);
 		double xent_elapsed = now_ms() - xent_start;
 
 		printf("nodes=%u baseline_ms=%.3f xent_ms=%.3f\n", n, baseline_elapsed, xent_elapsed);
 
-		xent_destroy_context(ctx);
+		xent_ctx_destroy(ctx);
 		free_baseline_tree(&baseline);
 	}
 

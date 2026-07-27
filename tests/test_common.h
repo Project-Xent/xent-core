@@ -18,9 +18,9 @@ typedef int (*XentTestFn)(void);
 	}                                                                                  \
 	while (0)
 
-static inline int test_float_near(float a, float b, float eps) { return fabsf(a - b) <= eps; }
+static int inline test_float_near(float a, float b, float eps) { return fabsf(a - b) <= eps; }
 
-static inline int test_run_all(XentTestFn const *tests, size_t count) {
+static int inline test_run_all(XentTestFn const *tests, size_t count) {
 	for (size_t i = 0; i < count; ++i)
 		if (tests [i]() != 0) return 1;
 	return 0;

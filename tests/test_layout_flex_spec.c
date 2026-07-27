@@ -64,36 +64,35 @@ static int has_finite_inset_value(XentInsets i) {
 	return isfinite(i.top) || isfinite(i.right) || isfinite(i.bottom) || isfinite(i.left);
 }
 
-static XentNodeId flex_make_root(XentContext *ctx, FlexCase const *spec) {
-	XentNodeId root = xent_create_node(ctx);
-	xent_set_protocol(ctx, root, XENT_PROTOCOL_FLEX);
-	xent_set_flex_direction(ctx, root, spec->flex_dir);
-	xent_set_size(ctx, root, spec->root_size);
-	if (spec->direction != XENT_DIRECTION_INHERIT) xent_set_direction(ctx, root, spec->direction);
-	xent_set_flex_justify_content(ctx, root, spec->justify);
-	xent_set_flex_align_items(ctx, root, spec->align_items);
-	if (spec->wrap) xent_set_flex_wrap(ctx, root, XENT_FLEX_WRAP);
-	if (spec->align_content != XENT_FLEX_ALIGN_CONTENT_START)
-		xent_set_flex_align_content(ctx, root, spec->align_content);
+static XentNodeId flex_make_root(XentCtx *ctx, FlexCase const *spec) {
+	XentNodeId root = xent_node_create(ctx);
+	xent_setproto(ctx, root, XENT_PROTOCOL_FLEX);
+	xent_setflexdir(ctx, root, spec->flex_dir);
+	xent_setsize(ctx, root, spec->root_size);
+	if (spec->direction != XENT_DIRECTION_INHERIT) xent_setdir(ctx, root, spec->direction);
+	xent_setjustify(ctx, root, spec->justify);
+	xent_setitems(ctx, root, spec->align_items);
+	if (spec->wrap) xent_setflexwrap(ctx, root, XENT_FLEX_WRAP);
+	if (spec->align_content != XENT_FLEX_ALIGN_CONTENT_START) xent_setcontent(ctx, root, spec->align_content);
 	return root;
 }
 
-static XentNodeId flex_make_child(XentContext *ctx, XentNodeId root, FlexChildCase const *spec) {
-	XentNodeId node = xent_create_node(ctx);
-	if (has_finite_size(spec->size)) xent_set_size(ctx, node, spec->size);
-	if (spec->text) xent_set_text(ctx, node, spec->text);
-	if (spec->align_self != XENT_FLEX_ALIGN_AUTO) xent_set_flex_align_self(ctx, node, spec->align_self);
-	if (isfinite(spec->basis)) xent_set_flex_basis(ctx, node, spec->basis);
-	if (has_finite_size(spec->min_size)) xent_set_min_size(ctx, node, spec->min_size);
-	if (has_finite_size(spec->max_size)) xent_set_max_size(ctx, node, spec->max_size);
-	if (has_finite_inset_value(spec->margin)) xent_set_margin(ctx, node, spec->margin);
-	xent_append_child(ctx, root, node);
+static XentNodeId flex_make_child(XentCtx *ctx, XentNodeId root, FlexChildCase const *spec) {
+	XentNodeId node = xent_node_create(ctx);
+	if (has_finite_size(spec->size)) xent_setsize(ctx, node, spec->size);
+	if (spec->text) xent_settext(ctx, node, spec->text);
+	if (spec->align_self != XENT_FLEX_ALIGN_AUTO) xent_setself(ctx, node, spec->align_self);
+	if (isfinite(spec->basis)) xent_setbasis(ctx, node, spec->basis);
+	if (has_finite_size(spec->min_size)) xent_setminsize(ctx, node, spec->min_size);
+	if (has_finite_size(spec->max_size)) xent_setmaxsize(ctx, node, spec->max_size);
+	if (has_finite_inset_value(spec->margin)) xent_setm(ctx, node, spec->margin);
+	xent_node_append(ctx, root, node);
 	return node;
 }
 
-static int flex_check_rect(XentContext *ctx, XentNodeId node, FlexChildCase const *expect, float eps) {
+static int flex_check_rect(XentCtx *ctx, XentNodeId node, FlexChildCase const *expect, float eps) {
 	XentRect rect = {0};
-	TEST_ASSERT(xent_get_layout_rect(ctx, node, &rect));
+	TEST_ASSERT(xent_layout_rect(ctx, node, &rect));
 	if (expect->check_mask & FCHK_X) TEST_ASSERT(test_float_near(rect.x, expect->expected_x, eps));
 	if (expect->check_mask & FCHK_Y) TEST_ASSERT(test_float_near(rect.y, expect->expected_y, eps));
 	if (expect->check_mask & FCHK_W) TEST_ASSERT(test_float_near(rect.w, expect->expected_w, eps));
@@ -101,19 +100,19 @@ static int flex_check_rect(XentContext *ctx, XentNodeId node, FlexChildCase cons
 	return 0;
 }
 
-static int flex_check_relative(XentContext *ctx, XentNodeId a, XentNodeId b, int kind, float eps) {
+static int flex_check_relative(XentCtx *ctx, XentNodeId a, XentNodeId b, int kind, float eps) {
 	if (kind == FREL_NONE) return 0;
 	XentRect ra = {0};
 	XentRect rb = {0};
-	TEST_ASSERT(xent_get_layout_rect(ctx, a, &ra));
-	TEST_ASSERT(xent_get_layout_rect(ctx, b, &rb));
+	TEST_ASSERT(xent_layout_rect(ctx, a, &ra));
+	TEST_ASSERT(xent_layout_rect(ctx, b, &rb));
 	if (kind == FREL_FIRST_BELOW) TEST_ASSERT(ra.y > rb.y);
 	if (kind == FREL_BASELINE_LAST) TEST_ASSERT(test_float_near(ra.y + ra.h, rb.y + rb.h, eps));
 	return 0;
 }
 
 static int run_flex_case(FlexCase const *spec) {
-	XentContext *ctx = xent_create_context(NULL);
+	XentCtx *ctx = xent_ctx_create(NULL);
 	TEST_ASSERT(ctx != NULL);
 
 	XentNodeId root                   = flex_make_root(ctx, spec);
@@ -129,14 +128,14 @@ static int run_flex_case(FlexCase const *spec) {
 		TEST_ASSERT(flex_check_relative(ctx, nodes [0], nodes [1], spec->relative_assert, spec->eps) == 0);
 
 	if (isfinite(spec->relayout_first_basis)) {
-		xent_set_flex_basis(ctx, nodes [0], spec->relayout_first_basis);
+		xent_setbasis(ctx, nodes [0], spec->relayout_first_basis);
 		TEST_ASSERT(xent_layout(ctx, root, spec->root_size.w, spec->root_size.h));
 		XentRect rect = {0};
-		TEST_ASSERT(xent_get_layout_rect(ctx, nodes [0], &rect));
+		TEST_ASSERT(xent_layout_rect(ctx, nodes [0], &rect));
 		TEST_ASSERT(test_float_near(rect.w, spec->relayout_first_w, spec->eps));
 	}
 
-	xent_destroy_context(ctx);
+	xent_ctx_destroy(ctx);
 	return 0;
 }
 
@@ -326,28 +325,28 @@ static int test_flex_table_cases(void) {
 	return 0;
 }
 
-static XentNodeId flex_make_freeze_child(XentContext *ctx, XentNodeId root, FlexFreezeChildCase const *spec) {
-	XentNodeId node = xent_create_node(ctx);
-	xent_set_size(ctx, node, (XentSize) {NAN, 20.0f});
-	xent_set_flex_basis(ctx, node, spec->basis);
-	xent_set_flex_grow(ctx, node, spec->grow);
-	xent_set_flex_shrink(ctx, node, spec->shrink);
-	if (isfinite(spec->min_w)) xent_set_min_size(ctx, node, (XentSize) {spec->min_w, NAN});
-	if (isfinite(spec->max_w)) xent_set_max_size(ctx, node, (XentSize) {spec->max_w, NAN});
-	xent_append_child(ctx, root, node);
+static XentNodeId flex_make_freeze_child(XentCtx *ctx, XentNodeId root, FlexFreezeChildCase const *spec) {
+	XentNodeId node = xent_node_create(ctx);
+	xent_setsize(ctx, node, (XentSize) {NAN, 20.0f});
+	xent_setbasis(ctx, node, spec->basis);
+	xent_setgrow(ctx, node, spec->grow);
+	xent_setshrink(ctx, node, spec->shrink);
+	if (isfinite(spec->min_w)) xent_setminsize(ctx, node, (XentSize) {spec->min_w, NAN});
+	if (isfinite(spec->max_w)) xent_setmaxsize(ctx, node, (XentSize) {spec->max_w, NAN});
+	xent_node_append(ctx, root, node);
 	return node;
 }
 
 static int run_flex_freeze_case(FlexFreezeCase const *spec) {
-	XentContext *ctx = xent_create_context(NULL);
+	XentCtx *ctx = xent_ctx_create(NULL);
 	TEST_ASSERT(ctx != NULL);
 
-	XentNodeId root = xent_create_node(ctx);
-	xent_set_protocol(ctx, root, XENT_PROTOCOL_FLEX);
-	xent_set_size(ctx, root, (XentSize) {spec->root_w, 40.0f});
-	xent_set_flex_direction(ctx, root, XENT_FLEX_ROW);
-	xent_set_flex_justify_content(ctx, root, XENT_FLEX_JUSTIFY_START);
-	xent_set_flex_align_items(ctx, root, XENT_FLEX_ALIGN_START);
+	XentNodeId root = xent_node_create(ctx);
+	xent_setproto(ctx, root, XENT_PROTOCOL_FLEX);
+	xent_setsize(ctx, root, (XentSize) {spec->root_w, 40.0f});
+	xent_setflexdir(ctx, root, XENT_FLEX_ROW);
+	xent_setjustify(ctx, root, XENT_FLEX_JUSTIFY_START);
+	xent_setitems(ctx, root, XENT_FLEX_ALIGN_START);
 
 	XentNodeId nodes [FLEX_FREEZE_MAX_CHILD] = {XENT_NODE_INVALID};
 	for (uint32_t i = 0u; i < spec->child_count; ++i)
@@ -356,11 +355,11 @@ static int run_flex_freeze_case(FlexFreezeCase const *spec) {
 	TEST_ASSERT(xent_layout(ctx, root, spec->root_w, 40.0f));
 	for (uint32_t i = 0u; i < spec->child_count; ++i) {
 		XentRect rect = {0};
-		TEST_ASSERT(xent_get_layout_rect(ctx, nodes [i], &rect));
+		TEST_ASSERT(xent_layout_rect(ctx, nodes [i], &rect));
 		TEST_ASSERT(test_float_near(rect.w, spec->children [i].expected_w, 0.5f));
 	}
 
-	xent_destroy_context(ctx);
+	xent_ctx_destroy(ctx);
 	return 0;
 }
 

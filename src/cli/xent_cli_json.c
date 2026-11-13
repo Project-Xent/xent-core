@@ -77,7 +77,7 @@ static bool json_stack_push(JsonDumpFrame **stack, uint32_t *top, uint32_t *capa
 	return true;
 }
 
-bool xent_dump_layout_json(XentCtx const *ctx, XentNodeId root, FILE *out) {
+bool xent_dump_layoutjson(XentCtx const *ctx, XentNodeId root, FILE *out) {
 	if (!xent_node_valid(ctx, root) || !out) return false;
 
 	JsonDumpFrame *stack    = NULL;

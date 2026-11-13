@@ -1,7 +1,3 @@
-// ISPC SIMD kernels for xent-core
-// Multi-target dispatch: ISPC generates SSE4 + AVX2 variants and picks at runtime.
-
-// ─── existing: float array sum reduction ───
 export uniform float xent_ispc_sum_f32(uniform const float values [], uniform unsigned int32 count) {
 	float partial = 0.0f;
 	foreach (i = 0 ... count) { partial += values [i]; }
@@ -10,8 +6,6 @@ export uniform float xent_ispc_sum_f32(uniform const float values [], uniform un
 
 export uniform bool xent_ispc_probe() { return true; }
 
-// ─── A: batch pixel quantize ───
-// Applies roundf(v * scale) / scale to each element.
 export void         xent_ispc_quantize_f32(uniform float values [], uniform unsigned int32 count, uniform float scale) {
 	uniform float inv_scale = 1.0f / scale;
 	foreach (i = 0 ... count) { values [i] = round(values [i] * scale) * inv_scale; }
@@ -32,8 +26,6 @@ export void xent_ispc_quantize_rects(
 	}
 }
 
-// ─── B: invalidate_all_layout — masked OR + masked zero ───
-// For each i where mask[i] != 0: flags[i] |= or_value
 export void xent_ispc_or_u32_masked(
   uniform unsigned int32 flags [], uniform const unsigned int8 mask [], uniform unsigned int32 count,
   uniform unsigned int32 or_value
@@ -43,7 +35,6 @@ export void xent_ispc_or_u32_masked(
 	}
 }
 
-// For each i where mask[i] != 0: out[i] = 0
 export void xent_ispc_zero_u8_masked(
   uniform unsigned int8 out [], uniform const unsigned int8 mask [], uniform unsigned int32 count
 ) {
@@ -52,8 +43,6 @@ export void xent_ispc_zero_u8_masked(
 	}
 }
 
-// ─── C: clear dirty via index list (scatter-zero) ───
-// For each index in indices[0..count-1]:  flags[indices[j]] = 0
 export void xent_ispc_scatter_zero_u32(
   uniform unsigned int32 flags [], uniform const unsigned int32 indices [], uniform unsigned int32 count
 ) {
@@ -63,13 +52,6 @@ export void xent_ispc_scatter_zero_u32(
 	}
 }
 
-// ─── D: flex line stats — multi-reduction ───
-// Given SoA arrays extracted from FlexChildData, computes:
-//   sum_outer_main = sum(base_main[i] + margin_lead[i] + margin_trail[i])
-//   sum_grow       = sum(grow[i])
-//   sum_shrink_w   = sum(shrink[i] * select(base_main[i] > 0, base_main[i], 1))
-//   max_cross_outer= max(base_cross[i] + margin_cross_lead[i] + margin_cross_trail[i])
-// gap contribution is added by the caller: sum_outer_main += gap * (count - 1)
 export void xent_ispc_flex_line_stats(
   uniform const float base_main [], uniform const float margin_lead [], uniform const float margin_trail [],
   uniform const float base_cross [], uniform const float margin_cross_lead [],
@@ -94,8 +76,6 @@ export void xent_ispc_flex_line_stats(
 	*out_max_cross_outer   = reduce_max(p_cross);
 }
 
-// ─── E: flex grow distribution ───
-// final_main[i] = base_main[i] + delta * (grow[i] / sum_grow)
 export void xent_ispc_flex_distribute_grow(
   uniform const float base_main [], uniform const float grow_arr [], uniform float final_main [],
   uniform unsigned int32 count, uniform float delta, uniform float sum_grow
@@ -104,9 +84,6 @@ export void xent_ispc_flex_distribute_grow(
 	foreach (i = 0 ... count) { final_main [i] = base_main [i] + grow_arr [i] * inv; }
 }
 
-// ─── E: flex shrink distribution ───
-// weight[i] = shrink[i] * max(base_main[i], 1)
-// final_main[i] = max(0, base_main[i] + delta * (weight[i] / sum_shrink_weight))
 export void xent_ispc_flex_distribute_shrink(
   uniform const float base_main [], uniform const float shrink_arr [], uniform float final_main [],
   uniform unsigned int32 count, uniform float delta, uniform float sum_shrink_weight
@@ -120,7 +97,6 @@ export void xent_ispc_flex_distribute_shrink(
 	}
 }
 
-// ─── F: flex occupied_main sum (sum of 3 arrays) ───
 export uniform float xent_ispc_sum_outer_main(
   uniform const float final_main [], uniform const float margin_lead [], uniform const float margin_trail [],
   uniform unsigned int32 count
@@ -130,8 +106,6 @@ export uniform float xent_ispc_sum_outer_main(
 	return reduce_add(p);
 }
 
-// ─── G: swiftstack masked add scalar (spacer distribution) ───
-// For each i where mask[i] != 0:  values[i] += addend
 export void xent_ispc_masked_add_f32(
   uniform float values [], uniform const unsigned int8 mask [], uniform unsigned int32 count, uniform float addend
 ) {
@@ -140,9 +114,6 @@ export void xent_ispc_masked_add_f32(
 	}
 }
 
-// ─── G: swiftstack priority-weighted distribution ───
-// For each i where mask[i] != 0:
-//   values[i] += remainder * (weights[i] / weight_sum)
 export void xent_ispc_masked_fma_f32(
   uniform float values [], uniform const unsigned int8 mask [], uniform const float weights [],
   uniform unsigned int32 count, uniform float remainder, uniform float weight_sum
@@ -153,11 +124,6 @@ export void xent_ispc_masked_fma_f32(
 	}
 }
 
-// ─── H: swiftstack proportional reduce (indirect via indices) ───
-// For i in [0, count):
-//   idx = indices[i]; current = values[idx]
-//   share = min(reduce_amount * current / total, current)
-//   values[idx] = current - share
 export void xent_ispc_proportional_reduce_gather(
   uniform float values [], uniform const unsigned int32 indices [], uniform unsigned int32 count,
   uniform float reduce_amount, uniform float total

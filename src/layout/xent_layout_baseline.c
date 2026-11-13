@@ -90,10 +90,20 @@ static float flex_column_baseline(XentCtx *ctx, XentNodeId node, float fallback)
 	return ctx->nodes.layout.padding_t [parent] + child_baseline(ctx, first, fallback);
 }
 
+static bool measured_text_baseline(XentCtx const *ctx, uint32_t index, float *out_baseline) {
+	if (!ctx->nodes.text.intrinsic_valid [index]) return false;
+	float baseline = ctx->nodes.text.intrinsic_baseline [index];
+	if (!(baseline > 0.0f)) return false;
+	*out_baseline = ctx->nodes.layout.padding_t [index] + baseline;
+	return true;
+}
+
 float xent_node_baseline(XentCtx *ctx, XentNodeId node, float cross_size) {
 	if (cross_size <= 0.0f) return 0.0f;
 	uint32_t index = xent_node_index(node);
 	if (node_has_text(ctx, index)) {
+		float baseline = 0.0f;
+		if (measured_text_baseline(ctx, index, &baseline)) return baseline;
 		ctx->profile.text_baseline_fallbacks += 1u;
 		return cross_size * 0.8f;
 	}

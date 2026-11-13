@@ -10,10 +10,6 @@ void xent_quantize_node_layout(XentCtx *ctx, XentNodeId node) {
 	float scale = ctx->config.point_scale_factor;
 	if (!(scale > 0.0f) || !isfinite(scale)) return;
 
-	/* Round to the pixel grid by EDGE, not by size: snap the start edge and the
-	 * far edge (position + size) to the grid independently, then derive the size
-	 * as their difference. This is what lets adjacent items tile to integer
-	 * pixels without cumulative gaps/overlaps (CSS pixel snapping). */
 	float x                                         = ctx->nodes.layout.abs_x [xent_node_index(node)];
 	float y                                         = ctx->nodes.layout.abs_y [xent_node_index(node)];
 	float w                                         = ctx->nodes.layout.decided_w [xent_node_index(node)];

@@ -72,7 +72,7 @@ static void run_case(char const *name, XentProtocol protocol, uint32_t nodes) {
 }
 
 int main(void) {
-	printf("runtime simd=%s\n", xent_is_simd_enabled() ? "enabled" : "disabled");
+	printf("runtime simd=%s\n", xent_simd_enabled() ? "enabled" : "disabled");
 	uint32_t sizes [] = {100u, 1000u, 10000u};
 	for (size_t i = 0; i < sizeof(sizes) / sizeof(sizes [0]); ++i) {
 		run_case("xent_flex", XENT_PROTOCOL_FLEX, sizes [i]);

@@ -25,6 +25,7 @@ static XentGrowField const XENT_NODE_GROW_FIELDS [] = {
   XENT_NODE_GROW_FIELD(layout.direction),
   XENT_NODE_GROW_FIELD(layout.wrap_content_w),
   XENT_NODE_GROW_FIELD(layout.wrap_content_h),
+  XENT_NODE_GROW_FIELD(layout.scroller),
   XENT_NODE_GROW_FIELD(layout.dirty_flags),
   XENT_NODE_GROW_FIELD(layout.dirty_queued),
   XENT_NODE_GROW_FIELD(layout.proposed_w),
@@ -71,9 +72,14 @@ static XentGrowField const XENT_NODE_GROW_FIELDS [] = {
   XENT_NODE_GROW_FIELD(stack.spacer),
 
   XENT_NODE_GROW_FIELD(text.content),
+  XENT_NODE_GROW_FIELD(text.font_family),
+  XENT_NODE_GROW_FIELD(text.runs),
+  XENT_NODE_GROW_FIELD(text.run_count),
   XENT_NODE_GROW_FIELD(text.font_size),
   XENT_NODE_GROW_FIELD(text.font_weight),
   XENT_NODE_GROW_FIELD(text.line_break_policy),
+  XENT_NODE_GROW_FIELD(text.trim),
+  XENT_NODE_GROW_FIELD(text.max_lines),
   XENT_NODE_GROW_FIELD(text.intrinsic_valid),
   XENT_NODE_GROW_FIELD(text.intrinsic_constraint_w),
   XENT_NODE_GROW_FIELD(text.intrinsic_font_size),
@@ -82,6 +88,7 @@ static XentGrowField const XENT_NODE_GROW_FIELDS [] = {
   XENT_NODE_GROW_FIELD(text.intrinsic_width_mode),
   XENT_NODE_GROW_FIELD(text.intrinsic_w),
   XENT_NODE_GROW_FIELD(text.intrinsic_h),
+  XENT_NODE_GROW_FIELD(text.intrinsic_baseline),
   XENT_NODE_GROW_FIELD(text.intrinsic_lines),
 
   XENT_NODE_GROW_FIELD(semantics.role),
@@ -153,10 +160,10 @@ static bool grow_arrays_two_phase(XentNodeStore *nodes, uint32_t old_cap, uint32
 	return true;
 }
 
-char *xent_strdup(char const *s) {
+char *xent_strdup(XentAllocSite site, char const *s) {
 	if (!s) return NULL;
 	size_t len  = strlen(s);
-	char  *copy = ( char * ) malloc(len + 1u);
+	char  *copy = ( char * ) xent_alloc_internal(site, len + 1u);
 	if (!copy) return NULL;
 	memcpy(copy, s, len + 1u);
 	return copy;
@@ -185,6 +192,7 @@ static void init_layout_defaults(XentNodeStore *nodes, uint32_t i) {
 	nodes->layout.direction [i]       = ( uint8_t ) XENT_DIRECTION_INHERIT;
 	nodes->layout.wrap_content_w [i]  = 0u;
 	nodes->layout.wrap_content_h [i]  = 0u;
+	nodes->layout.scroller [i]        = 0u;
 }
 
 static void init_flex_stack_defaults(XentNodeStore *nodes, uint32_t i) {
@@ -193,7 +201,7 @@ static void init_flex_stack_defaults(XentNodeStore *nodes, uint32_t i) {
 	nodes->flex.direction [i]       = ( uint8_t ) XENT_FLEX_ROW;
 	nodes->flex.wrap [i]            = ( uint8_t ) XENT_FLEX_NO_WRAP;
 	nodes->flex.justify_content [i] = ( uint8_t ) XENT_FLEX_JUSTIFY_START;
-	nodes->flex.align_items [i]     = ( uint8_t ) XENT_FLEX_ALIGN_STRETCH; /* CSS default */
+	nodes->flex.align_items [i]     = ( uint8_t ) XENT_FLEX_ALIGN_STRETCH;
 	nodes->flex.align_self [i]      = ( uint8_t ) XENT_FLEX_ALIGN_AUTO;
 	nodes->flex.align_content [i]   = ( uint8_t ) XENT_FLEX_ALIGN_CONTENT_START;
 	nodes->stack.axis [i]           = ( uint8_t ) XENT_AXIS_HORIZONTAL;
@@ -201,9 +209,15 @@ static void init_flex_stack_defaults(XentNodeStore *nodes, uint32_t i) {
 }
 
 static void init_text_defaults(XentNodeStore *nodes, uint32_t i) {
+	nodes->text.font_family [i]                 = NULL;
+	nodes->text.runs [i]                        = NULL;
+	nodes->text.run_count [i]                   = 0u;
 	nodes->text.font_size [i]                   = 14.0f;
 	nodes->text.font_weight [i]                 = 400u;
 	nodes->text.line_break_policy [i]           = ( uint8_t ) XENT_LINEBREAK_CHARWRAP;
+	nodes->text.trim [i]                        = ( uint8_t ) XENT_TEXT_TRIM_NONE;
+	nodes->text.max_lines [i]                   = 0u;
+	nodes->text.intrinsic_baseline [i]          = 0.0f;
 	nodes->text.intrinsic_valid [i]             = 0u;
 	nodes->text.intrinsic_constraint_w [i]      = NAN;
 	nodes->text.intrinsic_font_size [i]         = 0.0f;
@@ -230,6 +244,15 @@ static void init_node_defaults(XentNodeStore *nodes, uint32_t old_cap, uint32_t 
 		init_flex_stack_defaults(nodes, i);
 		init_text_defaults(nodes, i);
 		init_semantic_grid_defaults(nodes, i);
+	}
+}
+
+void xent_arena_free(XentNodeStore *nodes) {
+	uint32_t field_count = node_grow_field_count();
+	for (uint32_t f = 0u; f < field_count; ++f) {
+		void **slot = grow_field_slot(nodes, &XENT_NODE_GROW_FIELDS [f]);
+		free(*slot);
+		*slot = NULL;
 	}
 }
 

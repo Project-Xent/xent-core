@@ -50,7 +50,7 @@ typedef struct FlexLayoutFrame {
 	float      available_main;
 	float      available_cross;
 	float      gap;
-	uint8_t    sizing_mode; /* XENT_SIZING_* in force for this measurement */
+	uint8_t    sizing_mode;
 } FlexLayoutFrame;
 
 typedef struct FlexLinePlacement {
@@ -123,10 +123,6 @@ static FlexSpacingRule flex_spacing_rule(FlexSpacingMode mode) {
 
 static void flex_resolve_spacing(FlexSpacingRequest request, float *out_start_offset, float *out_effective_gap) {
 	FlexSpacingRule rule   = flex_spacing_rule(request.mode);
-	/* center/end (start_fixed) may offset by NEGATIVE free space so overflowing
-	 * content is centred / end-aligned past the start edge. The distributed
-	 * shares (space-between/around/evenly gaps, and around/evenly leading space)
-	 * never go negative — they fall back to packing from the start. */
 	float           shared = request.remaining < 0.0f ? 0.0f : request.remaining;
 	*out_start_offset      = request.remaining * rule.start_fixed
 	                       + flex_spacing_share(shared, rule.start_share, request.item_count, rule.start_add);
@@ -328,7 +324,9 @@ static FlexChildData flex_describe_child(XentCtx *ctx, FlexLayoutFrame const *fr
 	data.margin_cross_lead  = flex_cross_margin_lead(ctx, frame, child);
 	data.margin_cross_trail = flex_cross_margin_trail(ctx, frame, child);
 	data.grow               = ctx->nodes.flex.grow [xent_node_index(child)];
-	data.shrink             = ctx->nodes.flex.shrink [xent_node_index(child)];
+	data.shrink             = ctx->nodes.layout.scroller [xent_node_index(frame->node)]
+	                          ? 0.0f
+	                          : ctx->nodes.flex.shrink [xent_node_index(child)];
 	data.align_self         = ctx->nodes.flex.align_self [xent_node_index(child)];
 	data.min_main           = frame->row ? ctx->nodes.layout.min_w [xent_node_index(child)]
 	                                     : ctx->nodes.layout.min_h [xent_node_index(child)];
@@ -352,8 +350,6 @@ flex_collect_children(XentCtx *ctx, FlexLayoutFrame const *frame, FlexChildData 
 static uint32_t flex_build_lines(
   FlexLayoutFrame const *frame, FlexChildData const *children, uint32_t child_count, FlexLineData *lines
 ) {
-	/* min-content of a wrap container: each item gets its own line, so the
-	 * container's min-content MAIN size is the largest item (not the sum). */
 	if (frame->wrap_enabled && frame->sizing_mode == XENT_SIZING_MIN_CONTENT) {
 		for (uint32_t i = 0u; i < child_count; ++i) {
 			lines [i].start = i;
@@ -483,9 +479,6 @@ static void flex_reset_line_freeze(FlexLineData const *line, FlexChildData *chil
 static float flex_distributed_unfrozen_main(FlexChildData const *entry, FlexDistributionState const *state) {
 	float size = entry->base_main;
 	if (state->growing && state->remaining_grow > 0.0f) {
-		/* CSS Flexbox §9.7: when the sum of flex-grow factors is < 1, only
-		 * (sum × free space) is distributed — i.e. each item gets free×grow with
-		 * the factor NOT normalized. Clamp the denominator to 1 to express this. */
 		float denom = state->remaining_grow < 1.0f ? 1.0f : state->remaining_grow;
 		return size + state->remaining_delta * (entry->grow / denom);
 	}
@@ -585,8 +578,6 @@ static void flex_resolve_line_justify(
 ) {
 	float occupied_main  = flex_occupied_main(ctx, line, children, frame->gap);
 	float remaining_main = frame->available_main - occupied_main;
-	/* Negative free space (overflow) is kept: flex_resolve_spacing offsets
-	 * center/end past the start edge but never produces negative gaps. */
 	flex_resolve_spacing(
 	  (FlexSpacingRequest) {
 		( FlexSpacingMode ) ctx->nodes.flex.justify_content [xent_node_index(frame->node)],
@@ -618,10 +609,6 @@ static float flex_resolved_cross_size(FlexLinePrepareContext const *prepare, Xen
 	if (align == XENT_FLEX_ALIGN_STRETCH && flex_cross_auto(prepare))
 		cross_size
 		  = prepare->line->cross_outer - prepare->entry->margin_cross_lead - prepare->entry->margin_cross_trail;
-	/* Clamp the used cross size to the item's min/max cross (CSS: stretch and
-	 * content sizes are both bounded by min-/max-*). This keeps final_cross equal
-	 * to the size the item is actually dispatched at, so cross positioning (esp.
-	 * RTL and center/end) uses the clamped extent, not the pre-clamp line size. */
 	XentNodeId child = prepare->entry->id;
 	float      min_c = prepare->frame->row ? prepare->ctx->nodes.layout.min_h [xent_node_index(child)]
 	                                       : prepare->ctx->nodes.layout.min_w [xent_node_index(child)];
@@ -694,9 +681,6 @@ static float flex_cross_offset(
   FlexLayoutFrame const *frame, FlexLineData const *line, FlexLinePlacement const *placement, FlexChildData const *entry
 ) {
 	XentFlexAlign align = ( XentFlexAlign ) entry->resolved_align;
-	/* cross_free may be NEGATIVE when the item overflows its line — center/end
-	 * then offset it past the cross-start edge (CSS). Baseline clamps within the
-	 * non-negative range. */
 	float cross_free    = line->cross_outer - entry->final_cross - entry->margin_cross_lead - entry->margin_cross_trail;
 
 	if (frame->row && align == XENT_FLEX_ALIGN_BASELINE && placement->has_baseline_items) {
@@ -775,14 +759,10 @@ static void flex_layout_lines(
 	float remaining_cross   = frame->available_cross - total_lines_cross;
 	if (remaining_cross < 0.0f) remaining_cross = 0.0f;
 
-	/* align-content: stretch — grow each flex line's cross size equally to absorb
-	 * the free cross space, then resolve spacing with none left (no gaps/offset).
-	 * Items with align-stretch then fill the grown line (flex_prepare_line below
-	 * reads the updated cross_outer). */
 	if (( XentFlexAlignContent ) ctx->nodes.flex.align_content [xent_node_index(frame->node)]
-		  == XENT_FLEX_ALIGN_CONTENT_STRETCH
-		&& line_count > 0u
-		&& remaining_cross > 0.0f)
+	      == XENT_FLEX_ALIGN_CONTENT_STRETCH
+	    && line_count > 0u
+	    && remaining_cross > 0.0f)
 	{
 		float add = remaining_cross / ( float ) line_count;
 		for (uint32_t li = 0u; li < line_count; ++li) lines [li].cross_outer += add;
@@ -811,7 +791,6 @@ static void flex_layout_lines(
 	}
 }
 
-/* Build a position-free frame for measuring a flex container's content size. */
 static FlexLayoutFrame
 flex_measure_frame(XentCtx *ctx, XentNodeId node, float avail_main, float avail_cross, bool row) {
 	FlexLayoutFrame frame = {0};
@@ -828,10 +807,6 @@ flex_measure_frame(XentCtx *ctx, XentNodeId node, float avail_main, float avail_
 	return frame;
 }
 
-/* Resolve a line's used main sizes, then measure each item's hypothetical cross
- * at that used main (Flexbox §9.4 algo-cross-item) and return the line's cross
- * extent (algo-cross-line: the largest outer hypothetical cross). When the main
- * axis is indefinite (max-content sizing) each item keeps its hypothetical main. */
 static float flex_size_line(XentCtx *ctx, FlexLayoutFrame const *frame, FlexLineData *line, FlexChildData *children) {
 	if (isfinite(frame->available_main))
 		flex_distribute_line_main(ctx, line, children, frame->available_main - line->base_main);

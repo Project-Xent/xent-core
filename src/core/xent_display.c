@@ -100,8 +100,6 @@ static bool display_append_string(XentDlBuilder *b, char const *utf8, uint32_t *
 	size_t len = utf8 ? strlen(utf8) : 0u;
 	if (len > UINT32_MAX) return false;
 	uint32_t need = ( uint32_t ) len;
-	/* Keep a trailing NUL so backends may treat the offset as a C string.
-	 * text_len excludes the NUL; the byte at offset+len is always '\0'. */
 	if (b->strings_len > UINT32_MAX - need - 1u) return false;
 	uint32_t end = b->strings_len + need + 1u;
 	if (!display_grow_strings(b, end)) return false;
@@ -144,10 +142,10 @@ bool xent_dl_fillrrect(XentDlBuilder *b, XentRect rect, float radius, XentColor 
 
 bool xent_dl_strokerrect(XentDlBuilder *b, XentRect rect, float radius, XentColor color, float width) {
 	if (!display_finite_rect(rect)
-		|| !display_finite(radius)
-		|| radius < 0.0f
-		|| !display_finite(width)
-		|| width < 0.0f)
+	    || !display_finite(radius)
+	    || radius < 0.0f
+	    || !display_finite(width)
+	    || width < 0.0f)
 		return false;
 	if (!display_has_area(rect) || width == 0.0f) return true;
 	XentDlCmd cmd           = {.op = XENT_DL_STROKERRECT};
@@ -158,18 +156,19 @@ bool xent_dl_strokerrect(XentDlBuilder *b, XentRect rect, float radius, XentColo
 	return display_push(b, cmd);
 }
 
-bool xent_dl_drawtext_style(
+bool xent_dl_drawtextstyle(
   XentDlBuilder *b, XentRect bounds, char const *utf8, XentTextStyle const *style, XentColor color
 ) {
 	if (!b || !style || !display_finite_rect(bounds) || !display_finite(style->font_size) || style->font_size <= 0.0f)
 		return false;
 	if (style->h_align > 2u || style->v_align > 2u) return false;
+	if (style->trim > XENT_TEXT_TRIM_WORD_ELLIPSIS) return false;
 	uint32_t off = 0u, len = 0u;
 	if (!display_append_string(b, utf8, &off, &len)) return false;
 	uint32_t font_off = 0u, font_len = 0u;
 	if (style->font_family
-		&& style->font_family [0]
-		&& !display_append_string(b, style->font_family, &font_off, &font_len))
+	    && style->font_family [0]
+	    && !display_append_string(b, style->font_family, &font_off, &font_len))
 		return false;
 	XentDlCmd cmd          = {.op = XENT_DL_DRAWTEXT};
 	cmd.u.text.bounds      = bounds;
@@ -182,6 +181,8 @@ bool xent_dl_drawtext_style(
 	cmd.u.text.h_align     = style->h_align;
 	cmd.u.text.v_align     = style->v_align;
 	cmd.u.text.flags       = style->flags;
+	cmd.u.text.max_lines   = style->max_lines;
+	cmd.u.text.trim        = ( uint8_t ) style->trim;
 	cmd.u.text.color       = color;
 	return display_push(b, cmd);
 }
@@ -190,7 +191,7 @@ bool xent_dl_drawtext(
   XentDlBuilder *b, XentRect bounds, char const *utf8, float font_size, uint16_t font_weight, XentColor color
 ) {
 	XentTextStyle style = {.font_size = font_size, .font_weight = font_weight};
-	return xent_dl_drawtext_style(b, bounds, utf8, &style, color);
+	return xent_dl_drawtextstyle(b, bounds, utf8, &style, color);
 }
 
 bool xent_dl_drawimg(XentDlBuilder *b, XentRect bounds, XentResourceId image, XentImageFit stretch) {
@@ -202,7 +203,7 @@ bool xent_dl_drawimg(XentDlBuilder *b, XentRect bounds, XentResourceId image, Xe
 	return display_push(b, cmd);
 }
 
-bool xent_dl_pushclip_rect(XentDlBuilder *b, XentRect rect) {
+bool xent_dl_pushcliprect(XentDlBuilder *b, XentRect rect) {
 	if (!b || !display_finite_rect(rect)) return false;
 	XentDlCmd cmd   = {.op = XENT_DL_PUSHCLIP_RECT};
 	cmd.u.geom.rect = rect;
@@ -211,7 +212,7 @@ bool xent_dl_pushclip_rect(XentDlBuilder *b, XentRect rect) {
 	return true;
 }
 
-bool xent_dl_pushclip_rrect(XentDlBuilder *b, XentRect rect, float radius) {
+bool xent_dl_pushcliprrect(XentDlBuilder *b, XentRect rect, float radius) {
 	if (!b || !display_finite_rect(rect) || !display_finite(radius) || radius < 0.0f) return false;
 	XentDlCmd cmd     = {.op = XENT_DL_PUSHCLIP_RRECT};
 	cmd.u.geom.rect   = rect;
@@ -285,11 +286,11 @@ bool xent_dl_strokearc(
   XentDlBuilder *b, XentRect bounds, float start_deg, float sweep_deg, XentColor color, float width, XentStrokeCap cap
 ) {
 	if (!display_finite_rect(bounds)
-		|| !display_finite(start_deg)
-		|| !display_finite(sweep_deg)
-		|| !display_finite(width)
-		|| width < 0.0f
-		|| !display_cap_ok(cap))
+	    || !display_finite(start_deg)
+	    || !display_finite(sweep_deg)
+	    || !display_finite(width)
+	    || width < 0.0f
+	    || !display_cap_ok(cap))
 		return false;
 	XentDlCmd cmd          = {.op = XENT_DL_STROKEARC};
 	cmd.u.arc.bounds       = bounds;
@@ -305,12 +306,12 @@ bool xent_dl_strokeline(
   XentDlBuilder *b, float x0, float y0, float x1, float y1, XentColor color, float width, XentStrokeCap cap
 ) {
 	if (!display_finite(x0)
-		|| !display_finite(y0)
-		|| !display_finite(x1)
-		|| !display_finite(y1)
-		|| !display_finite(width)
-		|| width < 0.0f
-		|| !display_cap_ok(cap))
+	    || !display_finite(y0)
+	    || !display_finite(x1)
+	    || !display_finite(y1)
+	    || !display_finite(width)
+	    || width < 0.0f
+	    || !display_cap_ok(cap))
 		return false;
 	XentDlCmd cmd           = {.op = XENT_DL_STROKELINE};
 	cmd.u.line.x0           = x0;
@@ -323,7 +324,7 @@ bool xent_dl_strokeline(
 	return display_push(b, cmd);
 }
 
-bool xent_dl_pushclip_ellipse(XentDlBuilder *b, XentRect bounds) {
+bool xent_dl_pushclipellipse(XentDlBuilder *b, XentRect bounds) {
 	if (!b || !display_finite_rect(bounds)) return false;
 	XentDlCmd cmd        = {.op = XENT_DL_PUSHCLIP_ELLIPSE};
 	cmd.u.ellipse.bounds = bounds;
@@ -343,11 +344,11 @@ bool xent_dl_fillshape(XentDlBuilder *b, XentResourceId shape, XentRect bounds, 
 
 bool xent_dl_filltri(XentDlBuilder *b, float x0, float y0, float x1, float y1, float x2, float y2, XentColor color) {
 	if (!display_finite(x0)
-		|| !display_finite(y0)
-		|| !display_finite(x1)
-		|| !display_finite(y1)
-		|| !display_finite(x2)
-		|| !display_finite(y2))
+	    || !display_finite(y0)
+	    || !display_finite(x1)
+	    || !display_finite(y1)
+	    || !display_finite(x2)
+	    || !display_finite(y2))
 		return false;
 	XentDlCmd cmd   = {.op = XENT_DL_FILLTRI};
 	cmd.u.tri.x0    = x0;
@@ -364,16 +365,16 @@ static bool display_linear_axis_ok(float x0, float y0, float x1, float y1) {
 	return display_finite(x0) && display_finite(y0) && display_finite(x1) && display_finite(y1);
 }
 
-bool xent_dl_strokerrect_grad(XentDlBuilder *b, XentRect rect, float radius, float width, XentLinearGrad const *grad) {
+bool xent_dl_strokerrectgrad(XentDlBuilder *b, XentRect rect, float radius, float width, XentLinearGrad const *grad) {
 	if (!grad
-		|| !display_finite_rect(rect)
-		|| !display_finite(radius)
-		|| radius < 0.0f
-		|| !display_finite(width)
-		|| width < 0.0f
-		|| !display_linear_axis_ok(grad->x0, grad->y0, grad->x1, grad->y1)
-		|| !display_finite(grad->s0)
-		|| !display_finite(grad->s1))
+	    || !display_finite_rect(rect)
+	    || !display_finite(radius)
+	    || radius < 0.0f
+	    || !display_finite(width)
+	    || width < 0.0f
+	    || !display_linear_axis_ok(grad->x0, grad->y0, grad->x1, grad->y1)
+	    || !display_finite(grad->s0)
+	    || !display_finite(grad->s1))
 		return false;
 	XentDlCmd cmd             = {.op = XENT_DL_STROKERRECT_GRAD};
 	cmd.u.linear.rect         = rect;
@@ -390,12 +391,12 @@ bool xent_dl_strokerrect_grad(XentDlBuilder *b, XentRect rect, float radius, flo
 	return display_push(b, cmd);
 }
 
-bool xent_dl_fillrect_grad(XentDlBuilder *b, XentRect rect, XentLinearGrad const *grad) {
+bool xent_dl_fillrectgrad(XentDlBuilder *b, XentRect rect, XentLinearGrad const *grad) {
 	if (!grad
-		|| !display_finite_rect(rect)
-		|| !display_linear_axis_ok(grad->x0, grad->y0, grad->x1, grad->y1)
-		|| !display_finite(grad->s0)
-		|| !display_finite(grad->s1))
+	    || !display_finite_rect(rect)
+	    || !display_linear_axis_ok(grad->x0, grad->y0, grad->x1, grad->y1)
+	    || !display_finite(grad->s0)
+	    || !display_finite(grad->s1))
 		return false;
 	XentDlCmd cmd             = {.op = XENT_DL_FILLRECT_GRAD};
 	cmd.u.linear.rect         = rect;

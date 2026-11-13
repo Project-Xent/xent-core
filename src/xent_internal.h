@@ -13,6 +13,7 @@
 #include "core/xent_focus.h"
 #include "core/xent_scratch.h"
 #include "layout/xent_layout_grid_def.h"
+#include "xent_alloc_internal.h"
 
 #define XENT_CACHE_MAX_CAP 4096u
 
@@ -23,22 +24,25 @@ typedef struct XentLayoutRequest {
 	float      available_h;
 	float      origin_x;
 	float      origin_y;
-	/* When true, available_w/h is a size the PARENT decided for this node (flex
-	 * distribution, cross-axis stretch, a grid cell) and must be honored as the
-	 * node's outer size — not treated as mere available space to size against.
-	 * False for the root and absolutely-positioned children, which size
-	 * themselves from their content (intrinsic). Defaults false on zero-init. */
 	bool       definite_w;
 	bool       definite_h;
 } XentLayoutRequest;
 
 typedef int (*XentSortCompareFn)(void const *a, void const *b, void *context);
 
+typedef struct XentTextStyleBlob {
+	uint8_t const *bytes;
+	uint32_t       size;
+} XentTextStyleBlob;
+
 typedef struct XentTextCacheKey {
 	char const         *text;
+	XentTextStyleBlob   style;
 	float               font_size;
 	uint16_t            font_weight;
 	float               width_constraint;
+	uint32_t            max_lines;
+	XentTextTrim        trim;
 	XentLineBreakPolicy line_break_policy;
 	XentMeasureMode     width_mode;
 } XentTextCacheKey;
@@ -46,9 +50,13 @@ typedef struct XentTextCacheKey {
 typedef struct XentCachedTextKey {
 	uint64_t hash;
 	char    *text;
+	uint8_t *style_bytes;
+	uint32_t style_size;
 	float    font_size;
 	uint16_t font_weight;
 	float    width_constraint;
+	uint32_t max_lines;
+	uint8_t  trim;
 	uint8_t  line_break_policy;
 	uint8_t  width_mode;
 } XentCachedTextKey;
@@ -89,8 +97,9 @@ typedef struct XentNodeTopologyStore {
 typedef struct XentNodeLayoutStore {
 	uint8_t  *protocol;
 	uint8_t  *direction;
-	uint8_t  *wrap_content_w; /**< Size this axis to children's extent (fit-content) when auto. */
+	uint8_t  *wrap_content_w;
 	uint8_t  *wrap_content_h;
+	uint8_t  *scroller;
 	uint32_t *dirty_flags;
 	uint8_t  *dirty_queued;
 	float    *proposed_w;
@@ -142,19 +151,25 @@ typedef struct XentNodeStackStore {
 } XentNodeStackStore;
 
 typedef struct XentNodeTextStore {
-	char    **content;
-	float    *font_size;
-	uint16_t *font_weight;
-	uint8_t  *line_break_policy;
-	uint8_t  *intrinsic_valid;
-	float    *intrinsic_constraint_w;
-	float    *intrinsic_font_size;
-	uint16_t *intrinsic_font_weight;
-	uint8_t  *intrinsic_line_break_policy;
-	uint8_t  *intrinsic_width_mode;
-	float    *intrinsic_w;
-	float    *intrinsic_h;
-	uint32_t *intrinsic_lines;
+	char        **content;
+	char        **font_family;
+	XentTextRun **runs;
+	uint32_t     *run_count;
+	float        *font_size;
+	uint16_t     *font_weight;
+	uint8_t      *line_break_policy;
+	uint8_t      *trim;
+	uint32_t     *max_lines;
+	uint8_t      *intrinsic_valid;
+	float        *intrinsic_constraint_w;
+	float        *intrinsic_font_size;
+	uint16_t     *intrinsic_font_weight;
+	uint8_t      *intrinsic_line_break_policy;
+	uint8_t      *intrinsic_width_mode;
+	float        *intrinsic_w;
+	float        *intrinsic_h;
+	float        *intrinsic_baseline;
+	uint32_t     *intrinsic_lines;
 } XentNodeTextStore;
 
 typedef struct XentNodeSemanticStore {
@@ -197,8 +212,6 @@ typedef struct XentMonoBackendState {
 	float line_height;
 } XentMonoBackendState;
 
-/* Intrinsic-sizing intent (CSS §4.1). NORMAL sizes to the available space;
- * MIN_CONTENT / MAX_CONTENT compute the intrinsic extents regardless of it. */
 enum
 {
 	XENT_SIZING_NORMAL      = 0,
@@ -225,6 +238,8 @@ struct XentCtx {
 	XentTextBackend const          *text_backend;
 	XentTextBackend                 mono_backend;
 	XentMonoBackendState            mono_state;
+	uint8_t                        *style_key_buf;
+	uint32_t                        style_key_cap;
 
 	XentNodeId                      last_layout_root;
 	float                           last_layout_available_w;
@@ -239,10 +254,6 @@ struct XentCtx {
 	uint32_t                        swiftstack_scope_depth;
 	uint32_t                        flex_scope_depth;
 	uint32_t                        grid_scope_depth;
-	/* Transient intrinsic-sizing intent for the current measurement (CSS §4.1
-	 * min-content / max-content). NORMAL = size to the given available space;
-	 * MIN/MAX = ignore available and compute the intrinsic extent. Set/restored
-	 * around a measurement; read by the text backend and the flex content path. */
 	uint8_t                         sizing_mode;
 	XentProfStats                   profile;
 
@@ -253,26 +264,20 @@ struct XentCtx {
 	uint32_t                        node_observer_dispatch_depth;
 	XentObsId                       next_node_observer_id;
 
-	/* Dense by slot index; ownership checked via owner handle (generation-safe). */
 	struct XentExternalMeasureSlot *external_measures;
 	uint32_t                        external_measure_cap;
 };
 
-char      *xent_strdup(char const *s);
-bool       xent_ensure_node_capacity(XentCtx *ctx, uint32_t needed);
-/** Zero every SoA column for node @p i via the grow-field table, then reapply
- * non-zero defaults. Owned pointers (content, label, grid def) must be freed
- * first; recycled ids must never inherit their previous occupant's style. */
-void       xent_arena_reset_node(XentNodeStore *nodes, uint32_t i);
-/* Resolve a public handle to a live slot index, or 0 if null/stale/OOB. */
-uint32_t   xent_live_index(XentCtx const *ctx, XentNodeId node);
-/* Pack the current generation for a known-live slot. */
-XentNodeId xent_handle_of(XentCtx const *ctx, uint32_t index);
-void       xent_notify_node_observers(XentCtx *ctx, XentNodeEvent const *lifecycle);
+char    *xent_strdup(XentAllocSite site, char const *s);
+bool     xent_ensure_node_capacity(XentCtx *ctx, uint32_t needed);
+void     xent_arena_reset_node(XentNodeStore *nodes, uint32_t i);
+void     xent_arena_free(XentNodeStore *nodes);
+uint32_t xent_live_index(XentCtx const *ctx, XentNodeId node);
+void     xent_notify_node_observers(XentCtx *ctx, XentNodeEvent const *lifecycle);
 
-void       xent_extmeasure_on_destroy(XentCtx *ctx, XentNodeId node);
-void       xent_extmeasure_clear(XentCtx *ctx);
-bool       xent_resolve_external_measure(
+void     xent_extmeasure_on_destroy(XentCtx *ctx, XentNodeId node);
+void     xent_extmeasure_clear(XentCtx *ctx);
+bool     xent_resolve_external_measure(
   XentCtx *ctx, XentNodeId node, float available_w, float available_h, float *width, float *height
 );
 
@@ -286,6 +291,9 @@ void xent_text_cache_insert(XentTextCache *cache, XentTextCacheKey const *key, X
 
 bool xent_text_mono_init(XentCtx *ctx);
 
+void xent_text_release_node(XentNodeStore *nodes, uint32_t index);
+bool xent_text_request_valid(XentCtx const *ctx, XentTextMeasureReq const *request);
+
 void xent_layout_dispatch_node(XentLayoutRequest const *request);
 
 void xent_layout_node_absolute(XentLayoutRequest const *request);
@@ -297,20 +305,12 @@ void xent_layout_node_grid(XentLayoutRequest const *request);
 void xent_compute_intrinsic_size(
   XentCtx *ctx, XentNodeId node, float available_w, float available_h, float *out_w, float *out_h
 );
-/* Decide a node's outer width/height for a layout pass. A definite axis is
- * honored as-is (clamped to that axis's min/max); a non-definite axis is sized
- * from content via xent_compute_intrinsic_size. */
 void xent_decide_node_box(
   XentCtx *ctx, XentNodeId node, float available_w, float available_h, bool definite_w, bool definite_h, float *out_w,
   float *out_h
 );
-/* Hypothetical cross size of a flex item (Flexbox §9.4 algo-cross-item):
- * lay the item out with its used main size and read the resulting cross size.
- * `row` is the container's main axis (true = main is width). */
 float  xent_compute_hypothetical_cross(XentCtx *ctx, XentNodeId node, bool row, float used_main, float available_cross);
 void   xent_quantize_node_layout(XentCtx *ctx, XentNodeId node);
-
-void   xent_sort_by_priority(XentCtx const *ctx, XentNodeId *ids, uint32_t count, bool descending);
 
 double xent_now_ms(void);
 void   xent_sort_r(void *base, size_t count, size_t size, XentSortCompareFn compare, void *context);

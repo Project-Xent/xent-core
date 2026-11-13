@@ -45,7 +45,7 @@ XentGridDef *xent_grid_def_copy(XentGridDef const *src) {
 	dst->row_gap   = src->row_gap;
 	dst->col_gap   = src->col_gap;
 	if (!dup_tracks(&dst->row_modes, &dst->row_values, src->row_count, src->row_modes, src->row_values)
-		|| !dup_tracks(&dst->col_modes, &dst->col_values, src->col_count, src->col_modes, src->col_values))
+	    || !dup_tracks(&dst->col_modes, &dst->col_values, src->col_count, src->col_modes, src->col_values))
 	{
 		xent_grid_def_free(dst);
 		return NULL;

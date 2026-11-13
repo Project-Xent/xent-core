@@ -93,7 +93,7 @@ void xent_dump_tree(XentCtx const *ctx, XentNodeId root, FILE *out) {
 	dump_walk(ctx, root, out ? out : stdout, dump_tree_node);
 }
 
-void xent_dump_layout_text(XentCtx const *ctx, XentNodeId root, FILE *out) {
+void xent_dump_layouttext(XentCtx const *ctx, XentNodeId root, FILE *out) {
 	xent_dump_tree(ctx, root, out ? out : stdout);
 }
 
@@ -111,7 +111,7 @@ static void dump_semantics_node(XentCtx const *ctx, XentNodeId node, FILE *out, 
 	fputc('\n', out);
 }
 
-void xent_dump_semantics_text(XentCtx const *ctx, XentNodeId root, FILE *out) {
+void xent_dump_semanticstext(XentCtx const *ctx, XentNodeId root, FILE *out) {
 	if (!ctx) return;
 	XentNodeId target = root;
 	if (target == XENT_NODE_INVALID) target = ctx->last_layout_root;

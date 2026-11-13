@@ -65,8 +65,6 @@ static XentNodeId yt_create_node(XentCtx *ctx) {
 	return node;
 }
 
-/* Per-axis setters: setting one axis must NOT clear the OTHER axis's percent
- * (xent_setsize resets both axes, which would clobber a prior *_percent set). */
 static void yt_set_width(XentCtx *ctx, XentNodeId node, float width) {
 	yt_w [xent_node_index(node)] = width;
 	xent_setw(ctx, node, width);
@@ -1563,10 +1561,6 @@ static int test_0033_align_content_stretch_row_with_single_row(void) {
 	yt_set_height(ctx, root, 100.0f);
 	xent_setflexwrap(ctx, root, XENT_FLEX_WRAP);
 	xent_setflexdir(ctx, root, XENT_FLEX_ROW);
-	/* Original Yoga case is align-content:STRETCH (the single wrapped line stretches
-	 * to fill the container's cross). The earlier port hardcoded START because xent
-	 * lacked a STRETCH value; with align-content:stretch implemented this matches
-	 * both the case name and its expected (filled) cross sizes. */
 	xent_setcontent(ctx, root, XENT_FLEX_ALIGN_CONTENT_STRETCH);
 	XentNodeId root_child0 = yt_create_node(ctx);
 	yt_set_width(ctx, root_child0, 50.0f);
@@ -4017,11 +4011,6 @@ static YtTestFn const yt_tests [] = {
   test_0182_child_with_padding_align_end,
   test_0184_percentage_width_height_undefined_parent_size,
   test_0191_percent_of_max_cross_unstretched,
-  /* test_0203_nested_overflowing_child_in_constraint_parent excluded: it
-   * expects a 200px EMPTY explicit item to overflow a 100px parent (Yoga's
-   * flex-shrink:0 default). Under CSS the automatic minimum size of an empty
-   * explicit item is min(content=0, specified=200)=0, so flex-shrink:1 shrinks
-   * it to 100. xent is CSS-correct here; the case is Yoga-specific. */
 };
 
 int main(void) {

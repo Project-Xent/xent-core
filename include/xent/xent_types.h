@@ -5,20 +5,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* --- Toolchain contract -------------------------------------------------
- * The Xent stack builds as C23 (its own sources pass -std=c23 / /std:clatest).
- * The PUBLIC HEADERS stay C23-optional so toolchain probes and mixed-standard
- * consumers can include them without -std=c23: no hard C-standard #error (one
- * such #error broke xmake's has_cfuncs checks under clang/mingw, which compile
- * probes without -std=c23), and XENT_NODISCARD emits the attribute only where
- * the active standard accepts the [[...]] syntax. On MSVC the C23 features the
- * *sources* use land in cl 19.40 (VS 2022 17.10); guard only that, by compiler
- * version — which never trips a probe. See the MSVC matrix in Xent/CODE_STYLE.md. */
 #if defined(_MSC_VER) && _MSC_VER < 1940
   #error "Xent requires MSVC 19.40 (Visual Studio 2022 17.10) or newer."
 #endif
 
-/* [[nodiscard]] only under C23; in a C17/C11 probe it degrades to nothing. */
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311l
   #ifdef __has_c_attribute
 	#if __has_c_attribute(nodiscard)
@@ -30,9 +20,6 @@
   #define XENT_NODISCARD
 #endif
 
-/* Opaque generation-safe handle: low 32 bits = slot index (0 = null),
- * high 32 bits = slot generation. Dense sidecar arrays index by
- * xent_node_index(); never index by the raw handle value. */
 typedef uint64_t XentNodeId;
 typedef uint64_t XentObsId;
 
@@ -43,7 +30,7 @@ static uint32_t inline xent_node_index(XentNodeId id) { return ( uint32_t ) id; 
 
 static uint32_t inline xent_node_generation(XentNodeId id) { return ( uint32_t ) (id >> 32); }
 
-static XentNodeId inline xent_make_node_id(uint32_t index, uint32_t generation) {
+static XentNodeId inline xent_node_make(uint32_t index, uint32_t generation) {
 	if (index == 0u) return XENT_NODE_INVALID;
 	return (( XentNodeId ) generation << 32) | ( XentNodeId ) index;
 }
@@ -109,7 +96,7 @@ typedef enum XentFlexAlignContent
 	XENT_FLEX_ALIGN_CONTENT_SPACE_BETWEEN = 3,
 	XENT_FLEX_ALIGN_CONTENT_SPACE_AROUND  = 4,
 	XENT_FLEX_ALIGN_CONTENT_SPACE_EVENLY  = 5,
-	XENT_FLEX_ALIGN_CONTENT_STRETCH       = 6, /**< grow each line's cross size to fill free space */
+	XENT_FLEX_ALIGN_CONTENT_STRETCH       = 6,
 } XentFlexAlignContent;
 
 typedef enum XentAxis
@@ -169,7 +156,7 @@ typedef enum XentMeasureMode
 	XENT_MEASURE_UNDEFINED   = 0,
 	XENT_MEASURE_AT_MOST     = 1,
 	XENT_MEASURE_EXACTLY     = 2,
-	XENT_MEASURE_MIN_CONTENT = 3, /**< break at every opportunity; width = longest unbreakable run */
+	XENT_MEASURE_MIN_CONTENT = 3,
 } XentMeasureMode;
 
 typedef struct XentRect {
@@ -231,20 +218,85 @@ typedef struct XentNodeObs {
 	void         *userdata;
 } XentNodeObs;
 
+typedef enum XentFontSlant
+{
+	XENT_FONT_SLANT_NORMAL  = 0,
+	XENT_FONT_SLANT_ITALIC  = 1,
+	XENT_FONT_SLANT_OBLIQUE = 2,
+} XentFontSlant;
+
+typedef enum XentTextTrim
+{
+	XENT_TEXT_TRIM_NONE          = 0,
+	XENT_TEXT_TRIM_CHAR          = 1,
+	XENT_TEXT_TRIM_CHAR_ELLIPSIS = 2,
+	XENT_TEXT_TRIM_WORD          = 3,
+	XENT_TEXT_TRIM_WORD_ELLIPSIS = 4,
+} XentTextTrim;
+
+typedef struct XentTextRun {
+	uint32_t      offset;
+	uint32_t      length;
+	char const   *font_family;
+	float         font_size;
+	uint16_t      font_weight;
+	uint8_t       font_stretch;
+	XentFontSlant slant;
+} XentTextRun;
+
 typedef struct XentTextMetrics {
 	float    width;
 	float    height;
 	uint32_t line_count;
+	float    first_baseline;
 } XentTextMetrics;
 
 typedef struct XentTextMeasureReq {
 	char const         *text;
+	XentTextRun const  *runs;
+	uint32_t            run_count;
+	char const         *font_family;
 	float               font_size;
-	uint16_t            font_weight; /**< CSS scale 100..900; 0 = default (400). */
+	uint16_t            font_weight;
 	float               width_constraint;
+	uint32_t            max_lines;
+	XentTextTrim        trim;
 	XentLineBreakPolicy line_break_policy;
 	XentMeasureMode     width_mode;
 } XentTextMeasureReq;
+
+typedef uint64_t XentFontId;
+#define XENT_FONT_INVALID (( XentFontId ) 0)
+
+typedef struct XentGlyph {
+	uint32_t id;
+	uint32_t cluster;
+	float    advance;
+	float    offset_x;
+	float    offset_y;
+} XentGlyph;
+
+typedef struct XentGlyphRunDesc {
+	XentFontId font;
+	float      font_size;
+	float      origin_x;
+	float      origin_y;
+	uint8_t    bidi_level;
+} XentGlyphRunDesc;
+
+typedef struct XentGlyphRun {
+	XentGlyphRunDesc desc;
+	uint32_t         glyph_offset;
+	uint32_t         glyph_count;
+} XentGlyphRun;
+
+typedef struct XentTextShape {
+	XentGlyph const    *glyphs;
+	XentGlyphRun const *runs;
+	uint32_t            glyph_count;
+	uint32_t            run_count;
+	XentTextMetrics     metrics;
+} XentTextShape;
 
 typedef struct XentTextCacheStats {
 	uint64_t hits;

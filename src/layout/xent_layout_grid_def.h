@@ -16,10 +16,8 @@ typedef struct XentGridDef {
 
 void         xent_grid_def_free(XentGridDef *def);
 
-/* Deep copy, or NULL when @p src is NULL or allocation fails. */
 XentGridDef *xent_grid_def_copy(XentGridDef const *src);
 
-/* Return *slot, allocating a zeroed definition on first use; NULL on OOM. */
 XentGridDef *xent_grid_def_ensure(XentGridDef **slot);
 
 #endif

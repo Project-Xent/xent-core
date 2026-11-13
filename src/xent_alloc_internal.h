@@ -9,6 +9,8 @@ typedef enum XentAllocSite
 	XENT_ALLOC_NODE_GROW,
 	XENT_ALLOC_SCRATCH_ARENA,
 	XENT_ALLOC_TOPOLOGY_MUTATION,
+	XENT_ALLOC_TEXT,
+	XENT_ALLOC_SEMANTICS,
 } XentAllocSite;
 
 void *xent_alloc_internal(XentAllocSite site, size_t size);

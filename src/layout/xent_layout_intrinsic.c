@@ -61,9 +61,10 @@ static bool has_intrinsic_cache(XentCtx const *ctx, XentNodeId node, XentIntrins
 
 static XentTextMetrics read_intrinsic_cache(XentCtx const *ctx, XentNodeId node) {
 	return (XentTextMetrics) {
-	  ctx->nodes.text.intrinsic_w [xent_node_index(node)],
-	  ctx->nodes.text.intrinsic_h [xent_node_index(node)],
-	  ctx->nodes.text.intrinsic_lines [xent_node_index(node)],
+	  .width          = ctx->nodes.text.intrinsic_w [xent_node_index(node)],
+	  .height         = ctx->nodes.text.intrinsic_h [xent_node_index(node)],
+	  .line_count     = ctx->nodes.text.intrinsic_lines [xent_node_index(node)],
+	  .first_baseline = ctx->nodes.text.intrinsic_baseline [xent_node_index(node)],
 	};
 }
 
@@ -78,6 +79,7 @@ write_intrinsic_cache(XentCtx *ctx, XentNodeId node, XentIntrinsicInput const *i
 	ctx->nodes.text.intrinsic_w [xent_node_index(node)]                 = metrics->width;
 	ctx->nodes.text.intrinsic_h [xent_node_index(node)]                 = metrics->height;
 	ctx->nodes.text.intrinsic_lines [xent_node_index(node)]             = metrics->line_count;
+	ctx->nodes.text.intrinsic_baseline [xent_node_index(node)]          = metrics->first_baseline;
 }
 
 static XentIntrinsicInput resolve_intrinsic_mode(XentCtx const *ctx, XentIntrinsicInput input) {
@@ -91,9 +93,6 @@ static XentIntrinsicInput resolve_intrinsic_mode(XentCtx const *ctx, XentIntrins
 
 static bool
 measure_intrinsic_text(XentCtx *ctx, XentNodeId node, XentIntrinsicInput const *input, XentTextMetrics *out_metrics) {
-	/* CSS §4.1 intrinsic sizing for text: min-content = longest unbreakable run;
-	 * max-content = no wrap (one line). An EXPLICIT width still wins (sizing modes
-	 * only resolve an auto/content size). */
 	XentIntrinsicInput resolved = resolve_intrinsic_mode(ctx, *input);
 	input                       = &resolved;
 	if (has_intrinsic_cache(ctx, node, input)) {
@@ -101,13 +100,19 @@ measure_intrinsic_text(XentCtx *ctx, XentNodeId node, XentIntrinsicInput const *
 		return true;
 	}
 
+	uint32_t           index   = xent_node_index(node);
 	XentTextMeasureReq request = {
-	  ctx->nodes.text.content [xent_node_index(node)],
-	  ctx->nodes.text.font_size [xent_node_index(node)],
-	  ctx->nodes.text.font_weight [xent_node_index(node)],
-	  input->text_constraint,
-	  input->line_break_policy,
-	  input->width_mode,
+	  .text              = ctx->nodes.text.content [index],
+	  .runs              = ctx->nodes.text.runs [index],
+	  .run_count         = ctx->nodes.text.run_count [index],
+	  .font_family       = ctx->nodes.text.font_family [index],
+	  .font_size         = ctx->nodes.text.font_size [index],
+	  .font_weight       = ctx->nodes.text.font_weight [index],
+	  .width_constraint  = input->text_constraint,
+	  .max_lines         = ctx->nodes.text.max_lines [index],
+	  .trim              = ( XentTextTrim ) ctx->nodes.text.trim [index],
+	  .line_break_policy = input->line_break_policy,
+	  .width_mode        = input->width_mode,
 	};
 	if (!xent_text_measure(ctx, &request, out_metrics)) return false;
 
@@ -115,10 +120,6 @@ measure_intrinsic_text(XentCtx *ctx, XentNodeId node, XentIntrinsicInput const *
 	return true;
 }
 
-/* Text-derived sizes are border-box: the text is measured against the content
- * box (constraint minus horizontal padding) and the node's padding is added
- * back to the resulting axes, so padded text leaves (labels, buttons) size to
- * label-plus-chrome without an explicit xent_setsize. */
 static void
 apply_text_intrinsic_size(XentCtx *ctx, XentNodeId node, XentIntrinsicInput const *input, float *width, float *height) {
 	XentTextMetrics metrics = {0};
@@ -164,10 +165,6 @@ static void apply_size_constraints(XentCtx const *ctx, XentNodeId node, float *w
 	);
 }
 
-/* Core intrinsic sizing. forced_w/forced_h, when not NaN, pin that axis to a
- * definite size (as if it were a style size) before measuring the other axis —
- * used to compute a flex item's hypothetical cross size at its used main size
- * (CSS Flexbox §9.4 "algo-cross-item": lay out with the used main size). */
 static void compute_intrinsic_size_ex(
   XentCtx *ctx, XentNodeId node, float available_w, float available_h, float forced_w, float forced_h, float *out_w,
   float *out_h
@@ -183,8 +180,6 @@ static void compute_intrinsic_size_ex(
 	float width  = input.width;
 	float height = input.height;
 
-	/* External content (image / HtmlView): call whenever any axis is auto, with
-	 * resolved modes so width-fixed/height-auto (and the reverse) still measure. */
 	( void ) xent_resolve_external_measure(ctx, node, available_w, available_h, &width, &height);
 
 	apply_text_intrinsic_size(ctx, node, &input, &width, &height);

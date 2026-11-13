@@ -95,8 +95,9 @@ static bool is_break_opportunity(uint32_t codepoint) {
 
 static bool glyph_buffer_grow(XentDecodedGlyph **glyphs, uint32_t *capacity) {
 	uint32_t          next_capacity = *capacity * 2u;
-	XentDecodedGlyph *next
-	  = ( XentDecodedGlyph * ) realloc(*glyphs, sizeof(XentDecodedGlyph) * ( size_t ) next_capacity);
+	XentDecodedGlyph *next          = ( XentDecodedGlyph * ) xent_realloc_internal(
+	  XENT_ALLOC_TEXT, *glyphs, sizeof(XentDecodedGlyph) * ( size_t ) next_capacity
+	);
 	if (!next) return false;
 	*glyphs   = next;
 	*capacity = next_capacity;
@@ -117,7 +118,8 @@ static bool decode_glyphs(char const *text, XentDecodedGlyph **out_glyphs, uint3
 	if (text_len == 0u) return true;
 
 	uint32_t          capacity = 64u;
-	XentDecodedGlyph *glyphs   = ( XentDecodedGlyph * ) malloc(sizeof(XentDecodedGlyph) * ( size_t ) capacity);
+	XentDecodedGlyph *glyphs
+	  = ( XentDecodedGlyph * ) xent_alloc_internal(XENT_ALLOC_TEXT, sizeof(XentDecodedGlyph) * ( size_t ) capacity);
 	if (!glyphs) return false;
 
 	size_t   cursor = 0u;
@@ -179,9 +181,9 @@ static uint32_t resolve_max_glyphs_per_line(
   float glyph_w, float width_constraint, XentLineBreakPolicy line_break_policy, XentMeasureMode width_mode
 ) {
 	if (width_mode == XENT_MEASURE_UNDEFINED
-		|| line_break_policy == XENT_LINEBREAK_NOWRAP
-		|| !isfinite(width_constraint)
-		|| width_constraint <= 0.0f)
+	    || line_break_policy == XENT_LINEBREAK_NOWRAP
+	    || !isfinite(width_constraint)
+	    || width_constraint <= 0.0f)
 	{
 		return UINT32_MAX;
 	}
@@ -191,8 +193,10 @@ static uint32_t resolve_max_glyphs_per_line(
 
 static bool alloc_line_buffers(XentMonoShape *shape) {
 	if (shape->glyph_count == 0u) return true;
-	shape->lines.starts = ( uint32_t * ) malloc(sizeof(uint32_t) * ( size_t ) shape->glyph_count);
-	shape->lines.counts = ( uint32_t * ) malloc(sizeof(uint32_t) * ( size_t ) shape->glyph_count);
+	shape->lines.starts
+	  = ( uint32_t * ) xent_alloc_internal(XENT_ALLOC_TEXT, sizeof(uint32_t) * ( size_t ) shape->glyph_count);
+	shape->lines.counts
+	  = ( uint32_t * ) xent_alloc_internal(XENT_ALLOC_TEXT, sizeof(uint32_t) * ( size_t ) shape->glyph_count);
 	return shape->lines.starts && shape->lines.counts;
 }
 
@@ -234,8 +238,6 @@ static void build_lines_word_wrap(XentMonoShape *shape, uint32_t max_glyphs_per_
 	}
 }
 
-/* min-content: break at EVERY break opportunity so each line is one unbreakable
- * run (a "word"); the widest line is the text's min-content width. */
 static void build_lines_min_content(XentMonoShape *shape) {
 	uint32_t line_start = 0u;
 	for (uint32_t scan = 0u; scan < shape->glyph_count; ++scan) {
@@ -274,40 +276,111 @@ static bool build_line_plan(XentMonoShape *shape) {
 	return true;
 }
 
+static bool line_limit_active(XentTextMeasureReq const *request) {
+	return request->max_lines != 0u && request->width_mode != XENT_MEASURE_MIN_CONTENT;
+}
+
+static bool trimming_active(XentTextMeasureReq const *request) {
+	if (request->trim == XENT_TEXT_TRIM_NONE) return false;
+	if (request->width_mode != XENT_MEASURE_AT_MOST && request->width_mode != XENT_MEASURE_EXACTLY) return false;
+	return isfinite(request->width_constraint) && request->width_constraint >= 0.0f;
+}
+
+static void apply_line_limit(XentMonoShape *shape) {
+	if (!line_limit_active(shape->request)) return;
+	if (shape->lines.count > shape->request->max_lines) shape->lines.count = shape->request->max_lines;
+}
+
 static void compute_line_metrics(XentMonoShape *shape) {
 	shape->max_line_width = 0.0f;
 	if (shape->glyph_count == 0u) return;
+
+	float limit = trimming_active(shape->request) ? shape->request->width_constraint : INFINITY;
 	for (uint32_t i = 0u; i < shape->lines.count; ++i) {
 		float line_width = shape->glyph_width * ( float ) shape->lines.counts [i];
+		if (line_width > limit) line_width = limit;
 		if (line_width > shape->max_line_width) shape->max_line_width = line_width;
 	}
 }
 
 static float resolve_result_width(XentMonoShape const *shape) {
 	if (shape->request->width_mode == XENT_MEASURE_EXACTLY
-		&& isfinite(shape->request->width_constraint)
-		&& shape->request->width_constraint >= 0.0f)
+	    && isfinite(shape->request->width_constraint)
+	    && shape->request->width_constraint >= 0.0f)
 	{
 		return shape->request->width_constraint;
 	}
 	return shape->max_line_width;
 }
 
+#define XENT_MONO_ASCENT_RATIO 0.8f
+#define XENT_MONO_FONT_ID      (( XentFontId ) 1)
+
+static float mono_baseline(XentMonoShape const *shape) { return shape->line_height * XENT_MONO_ASCENT_RATIO; }
+
+static bool  mono_layout(XentMonoShape *shape, XentTextBackend const *backend, XentTextMeasureReq const *request) {
+	if (!shape_init(shape, backend, request)) return false;
+	if (!build_line_plan(shape)) return false;
+	apply_line_limit(shape);
+	compute_line_metrics(shape);
+	return true;
+}
+
+static void mono_read_metrics(XentMonoShape const *shape, XentTextMetrics *out_metrics) {
+	out_metrics->width          = resolve_result_width(shape);
+	out_metrics->height         = shape->line_height * ( float ) shape->lines.count;
+	out_metrics->line_count     = shape->lines.count;
+	out_metrics->first_baseline = mono_baseline(shape);
+}
+
 static bool
 measure_mono(XentTextBackend const *backend, XentTextMeasureReq const *request, XentTextMetrics *out_metrics) {
 	XentMonoShape shape = {0};
-	if (!out_metrics || !shape_init(&shape, backend, request)) return false;
-	if (!build_line_plan(&shape)) {
-		shape_destroy(&shape);
-		return false;
-	}
+	if (!out_metrics) return false;
 
-	compute_line_metrics(&shape);
-	out_metrics->width      = resolve_result_width(&shape);
-	out_metrics->height     = shape.line_height * ( float ) shape.lines.count;
-	out_metrics->line_count = shape.lines.count;
+	bool ok = mono_layout(&shape, backend, request);
+	if (ok) mono_read_metrics(&shape, out_metrics);
 	shape_destroy(&shape);
-	return true;
+	return ok;
+}
+
+static bool emit_mono_line(XentMonoShape const *shape, XentShapeSink *sink, uint32_t line, XentGlyph *scratch) {
+	uint32_t start = shape->lines.starts [line];
+	uint32_t count = shape->lines.counts [line];
+	for (uint32_t i = 0u; i < count; ++i)
+		scratch [i] = (XentGlyph) {
+		  shape->glyphs [start + i].codepoint, shape->glyphs [start + i].cluster, shape->glyph_width, 0.0f, 0.0f};
+
+	XentGlyphRunDesc desc = {
+	  XENT_MONO_FONT_ID, shape->request->font_size, 0.0f, ( float ) line * shape->line_height + mono_baseline(shape),
+	  0u};
+	return xent_shape_emit(sink, &desc, scratch, count);
+}
+
+static bool emit_mono_lines(XentMonoShape const *shape, XentShapeSink *sink) {
+	if (shape->glyph_count == 0u) return true;
+
+	XentGlyph *scratch
+	  = ( XentGlyph * ) xent_alloc_internal(XENT_ALLOC_TEXT, sizeof(*scratch) * ( size_t ) shape->glyph_count);
+	if (!scratch) return false;
+
+	bool ok = true;
+	for (uint32_t line = 0u; line < shape->lines.count && ok; ++line) ok = emit_mono_line(shape, sink, line, scratch);
+
+	free(scratch);
+	return ok;
+}
+
+static bool shape_mono(
+  XentTextBackend const *backend, XentTextMeasureReq const *request, XentShapeSink *sink, XentTextMetrics *out_metrics
+) {
+	XentMonoShape shape = {0};
+	if (!out_metrics || !sink) return false;
+
+	bool ok = mono_layout(&shape, backend, request) && emit_mono_lines(&shape, sink);
+	if (ok) mono_read_metrics(&shape, out_metrics);
+	shape_destroy(&shape);
+	return ok;
 }
 
 bool xent_text_mono_init(XentCtx *ctx) {
@@ -318,6 +391,7 @@ bool xent_text_mono_init(XentCtx *ctx) {
 
 	ctx->mono_backend.name      = "mono_fallback";
 	ctx->mono_backend.measure   = measure_mono;
+	ctx->mono_backend.shape     = shape_mono;
 	ctx->mono_backend.userdata  = &ctx->mono_state;
 	ctx->text_backend           = &ctx->mono_backend;
 	return true;

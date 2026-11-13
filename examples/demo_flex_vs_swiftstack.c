@@ -61,7 +61,7 @@ static void run_case(float width) {
 
 	printf("\n=== width=%.0f ===\n", width);
 	xent_layout(ctx, root, width, 120.0f);
-	xent_dump_layout_text(ctx, root, stdout);
+	xent_dump_layouttext(ctx, root, stdout);
 
 	xent_ctx_destroy(ctx);
 }

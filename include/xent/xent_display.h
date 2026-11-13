@@ -3,15 +3,6 @@
 
 #include "xent_types.h"
 
-
-/* Immutable, platform-neutral display list. Builders mutate; finished
- * lists expose only const accessors. Backends replay; Core never holds
- * HWND/D2D/GPU objects. Image/shape slots are opaque cookies resolved by the host.
- *
- * Geometry is node-local. Arc angles: 0 = +X, positive sweep is clockwise in
- * y-down space. Affine maps p' = (x*m00 + y*m01 + m02, x*m10 + y*m11 + m12)
- * with row-major storage (m00 m01 m02 / m10 m11 m12). No open PathBuilder. */
-
 typedef uint64_t XentResourceId;
 #define XENT_RESOURCE_INVALID (( XentResourceId ) 0)
 
@@ -71,17 +62,18 @@ typedef enum XentDlOp
 	XENT_DL_FILLRECT_GRAD,
 } XentDlOp;
 
-/** @brief DRAW_TEXT flags (platform-neutral). */
 #define XENT_DL_TEXT_WRAP 0x01u
 #define XENT_DL_TEXT_ICON 0x02u
 
 typedef struct XentTextStyle {
-	float       font_size;
-	uint16_t    font_weight;
-	uint8_t     h_align;     /**< 0=left, 1=center, 2=right */
-	uint8_t     v_align;     /**< 0=top, 1=center, 2=bottom */
-	uint8_t     flags;       /**< XENT_DL_TEXT_WRAP | XENT_DL_TEXT_ICON */
-	char const *font_family; /**< NULL = platform default UI font; copied into list string pool */
+	float        font_size;
+	uint16_t     font_weight;
+	uint8_t      h_align;
+	uint8_t      v_align;
+	uint8_t      flags;
+	uint8_t      max_lines;
+	XentTextTrim trim;
+	char const  *font_family;
 } XentTextStyle;
 
 typedef enum XentImageFit
@@ -92,9 +84,6 @@ typedef enum XentImageFit
 	XENT_IMAGE_FIT_NONE,
 } XentImageFit;
 
-/* Two-stop linear gradient. Axis (x0,y0)→(x1,y1) is in the same object-local
- * space as the geometry it fills; s0/s1 are stop positions. Replay applies the
- * current transform stack to both geometry and brush points. */
 typedef struct XentLinearGrad {
 	float     x0, y0, x1, y1;
 	float     s0, s1;
@@ -118,14 +107,15 @@ typedef struct XentDlCmd {
 			XentRect  bounds;
 			uint32_t  text_offset;
 			uint32_t  text_len;
-			uint32_t  font_offset; /**< 0 + font_len 0 => default UI font */
+			uint32_t  font_offset;
 			uint32_t  font_len;
 			float     font_size;
 			uint16_t  font_weight;
 			uint8_t   h_align;
 			uint8_t   v_align;
 			uint8_t   flags;
-			uint8_t   reserved;
+			uint8_t   max_lines;
+			uint8_t   trim;
 			XentColor color;
 		} text;
 
@@ -177,7 +167,6 @@ typedef struct XentDlCmd {
 			XentColor color;
 		} tri;
 
-		/* Two-stop linear gradient; see XentLinearGrad. */
 		struct {
 			XentRect  rect;
 			float     radius;
@@ -202,12 +191,12 @@ bool xent_dl_strokerrect(XentDlBuilder *b, XentRect rect, float radius, XentColo
 bool xent_dl_drawtext(
   XentDlBuilder *b, XentRect bounds, char const *utf8, float font_size, uint16_t font_weight, XentColor color
 );
-bool xent_dl_drawtext_style(
+bool xent_dl_drawtextstyle(
   XentDlBuilder *b, XentRect bounds, char const *utf8, XentTextStyle const *style, XentColor color
 );
 bool xent_dl_drawimg(XentDlBuilder *b, XentRect bounds, XentResourceId image, XentImageFit stretch);
-bool xent_dl_pushclip_rect(XentDlBuilder *b, XentRect rect);
-bool xent_dl_pushclip_rrect(XentDlBuilder *b, XentRect rect, float radius);
+bool xent_dl_pushcliprect(XentDlBuilder *b, XentRect rect);
+bool xent_dl_pushcliprrect(XentDlBuilder *b, XentRect rect, float radius);
 bool xent_dl_popclip(XentDlBuilder *b);
 bool xent_dl_pushtransform(XentDlBuilder *b, XentAffine2 m);
 bool xent_dl_poptransform(XentDlBuilder *b);
@@ -222,13 +211,12 @@ bool xent_dl_strokearc(
 bool xent_dl_strokeline(
   XentDlBuilder *b, float x0, float y0, float x1, float y1, XentColor color, float width, XentStrokeCap cap
 );
-bool xent_dl_pushclip_ellipse(XentDlBuilder *b, XentRect bounds);
+bool xent_dl_pushclipellipse(XentDlBuilder *b, XentRect bounds);
 bool xent_dl_fillshape(XentDlBuilder *b, XentResourceId shape, XentRect bounds, XentColor color);
 bool xent_dl_filltri(XentDlBuilder *b, float x0, float y0, float x1, float y1, float x2, float y2, XentColor color);
-bool xent_dl_strokerrect_grad(XentDlBuilder *b, XentRect rect, float radius, float width, XentLinearGrad const *grad);
-bool xent_dl_fillrect_grad(XentDlBuilder *b, XentRect rect, XentLinearGrad const *grad);
+bool xent_dl_strokerrectgrad(XentDlBuilder *b, XentRect rect, float radius, float width, XentLinearGrad const *grad);
+bool xent_dl_fillrectgrad(XentDlBuilder *b, XentRect rect, XentLinearGrad const *grad);
 
-/* Consumes the builder. Returned list is immutable until destroyed. */
 XENT_NODISCARD XentDl *xent_dl_end(XentDlBuilder *b);
 void                   xent_dl_free(XentDl *list);
 

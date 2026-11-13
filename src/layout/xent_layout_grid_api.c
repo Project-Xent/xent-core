@@ -14,8 +14,8 @@ typedef struct GridTrackTarget {
 
 static bool set_grid_tracks(XentCtx *ctx, XentNodeId node, GridTrackRequest request, GridTrackTarget target) {
 	if (!xent_node_valid(ctx, node)
-		|| request.count > UINT16_MAX
-		|| (request.count > 0u && (!request.modes || !request.values)))
+	    || request.count > UINT16_MAX
+	    || (request.count > 0u && (!request.modes || !request.values)))
 	{
 		return false;
 	}

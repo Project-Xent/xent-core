@@ -183,6 +183,13 @@ bool xent_setfit(XentCtx *ctx, XentNodeId node, bool wrap_width, bool wrap_heigh
 	return true;
 }
 
+bool xent_setscroller(XentCtx *ctx, XentNodeId node, bool scroller) {
+	if (!xent_node_valid(ctx, node)) return false;
+	ctx->nodes.layout.scroller [xent_node_index(node)] = scroller ? 1u : 0u;
+	xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
+	return true;
+}
+
 bool xent_setaspect(XentCtx *ctx, XentNodeId node, float aspect_ratio) {
 	if (!xent_node_valid(ctx, node) || (!isnan(aspect_ratio) && (!isfinite(aspect_ratio) || aspect_ratio <= 0.0f)))
 		return false;

@@ -53,7 +53,7 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	if (!xent_dump_layout_json(ctx, root, out)) {
+	if (!xent_dump_layoutjson(ctx, root, out)) {
 		if (out != stdout) fclose(out);
 		xent_ctx_destroy(ctx);
 		return 3;

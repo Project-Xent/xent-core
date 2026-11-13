@@ -2,10 +2,6 @@
 
 #if XENT_ISPC_ENABLED
   #include "xent_ispc_kernels_ispc.h"
-  /* ISPC-generated COFF objects reference _fltused (an MSVC CRT symbol) when
-     floating-point operations are present.  MinGW does not provide it, so we
-     define it here to satisfy the linker.  The value 0x9875 is the traditional
-     MSVC sentinel. */
   #ifdef __MINGW32__
 int _fltused = 0x9875;
   #endif
@@ -21,7 +17,7 @@ static void scalar_fill_f32(float *values, uint32_t count, float value) {
 	for (uint32_t i = 0; i < count; ++i) values [i] = value;
 }
 
-bool xent_is_simd_enabled(void) {
+bool xent_simd_enabled(void) {
 #if XENT_ISPC_ENABLED
 	return true;
 #else

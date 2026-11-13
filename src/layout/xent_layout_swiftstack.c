@@ -404,7 +404,7 @@ stack_next_priority_group(StackBuffers const *buffers, StackCollectStats const *
 	StackPriorityGroup group    = {start, start, 0.0f, 0.0f, 0.0f};
 	float              priority = buffers->children [buffers->priority_order [start]].priority;
 	while (group.end < stats->count
-		   && same_priority(buffers->children [buffers->priority_order [group.end]].priority, priority))
+	       && same_priority(buffers->children [buffers->priority_order [group.end]].priority, priority))
 	{
 		uint32_t child_index  = buffers->priority_order [group.end];
 		float    size         = buffers->main_sizes [child_index];

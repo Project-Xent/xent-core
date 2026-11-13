@@ -17,7 +17,14 @@ static XentCacheOps const XENT_TEXT_CACHE_OPS = {sizeof(XentTextCacheEntry), off
 
 static bool               float_bits_equal(float a, float b) { return memcmp(&a, &b, sizeof(float)) == 0; }
 
-static void              *cache_entry_at(void *entries, XentCacheOps const *ops, uint32_t slot) {
+static void              *cache_alloc_zeroed(uint32_t count, size_t entry_size) {
+	size_t bytes = ( size_t ) count * entry_size;
+	void  *block = xent_alloc_internal(XENT_ALLOC_TEXT, bytes);
+	if (block) memset(block, 0, bytes);
+	return block;
+}
+
+static void *cache_entry_at(void *entries, XentCacheOps const *ops, uint32_t slot) {
 	return ( uint8_t * ) entries + ( size_t ) slot * ops->entry_size;
 }
 
@@ -39,16 +46,21 @@ static uint64_t hash_bytes(uint64_t hash, void const *data, size_t size) {
 }
 
 static uint64_t hash_text_cache_key(XentTextCacheKey const *key) {
-	uint64_t hash              = 1469598103934665603ull;
-	uint8_t  line_break_policy = ( uint8_t ) key->line_break_policy;
-	uint8_t  width_mode        = ( uint8_t ) key->width_mode;
-	hash                       = hash_bytes(hash, key->text, strlen(key->text));
-	hash                       = hash_bytes(hash, &key->font_size, sizeof(key->font_size));
-	hash                       = hash_bytes(hash, &key->font_weight, sizeof(key->font_weight));
-	hash                       = hash_bytes(hash, &key->width_constraint, sizeof(key->width_constraint));
-	hash                       = hash_bytes(hash, &line_break_policy, sizeof(line_break_policy));
-	hash                       = hash_bytes(hash, &width_mode, sizeof(width_mode));
+	uint8_t  narrow [3] = {( uint8_t ) key->trim, ( uint8_t ) key->line_break_policy, ( uint8_t ) key->width_mode};
+	uint64_t hash       = 1469598103934665603ull;
+	hash                = hash_bytes(hash, key->text, strlen(key->text));
+	hash                = hash_bytes(hash, key->style.bytes, key->style.size);
+	hash                = hash_bytes(hash, &key->font_size, sizeof(key->font_size));
+	hash                = hash_bytes(hash, &key->font_weight, sizeof(key->font_weight));
+	hash                = hash_bytes(hash, &key->width_constraint, sizeof(key->width_constraint));
+	hash                = hash_bytes(hash, &key->max_lines, sizeof(key->max_lines));
+	hash                = hash_bytes(hash, narrow, sizeof(narrow));
 	return hash ? hash : 1ull;
+}
+
+static bool cached_style_matches(XentCachedTextKey const *cached, XentTextStyleBlob const *style) {
+	if (cached->style_size != style->size) return false;
+	return style->size == 0u || memcmp(cached->style_bytes, style->bytes, style->size) == 0;
 }
 
 static bool cached_text_key_matches(XentCachedTextKey const *cached, XentTextCacheKey const *key, uint64_t key_hash) {
@@ -56,29 +68,56 @@ static bool cached_text_key_matches(XentCachedTextKey const *cached, XentTextCac
 	    && float_bits_equal(cached->font_size, key->font_size)
 	    && cached->font_weight == key->font_weight
 	    && float_bits_equal(cached->width_constraint, key->width_constraint)
+	    && cached->max_lines == key->max_lines
+	    && cached->trim == ( uint8_t ) key->trim
 	    && cached->line_break_policy == ( uint8_t ) key->line_break_policy
 	    && cached->width_mode == ( uint8_t ) key->width_mode
+	    && cached_style_matches(cached, &key->style)
 	    && strcmp(cached->text, key->text) == 0;
 }
 
+static bool cached_style_copy(XentCachedTextKey *cached, XentTextStyleBlob const *style) {
+	if (style->size == 0u) return true;
+	cached->style_bytes = ( uint8_t * ) xent_alloc_internal(XENT_ALLOC_TEXT, style->size);
+	if (!cached->style_bytes) return false;
+	memcpy(cached->style_bytes, style->bytes, style->size);
+	cached->style_size = style->size;
+	return true;
+}
+
 static bool cached_text_key_copy(XentCachedTextKey *cached, XentTextCacheKey const *key, uint64_t key_hash) {
-	cached->text = xent_strdup(key->text);
+	cached->text = xent_strdup(XENT_ALLOC_TEXT, key->text);
 	if (!cached->text) return false;
+	if (!cached_style_copy(cached, &key->style)) {
+		free(cached->text);
+		cached->text = NULL;
+		return false;
+	}
 
 	cached->hash              = key_hash;
 	cached->font_size         = key->font_size;
 	cached->font_weight       = key->font_weight;
 	cached->width_constraint  = key->width_constraint;
+	cached->max_lines         = key->max_lines;
+	cached->trim              = ( uint8_t ) key->trim;
 	cached->line_break_policy = ( uint8_t ) key->line_break_policy;
 	cached->width_mode        = ( uint8_t ) key->width_mode;
 	return true;
+}
+
+static void cached_text_key_release(XentCachedTextKey *key) {
+	free(key->text);
+	free(key->style_bytes);
+	key->text        = NULL;
+	key->style_bytes = NULL;
+	key->style_size  = 0u;
 }
 
 static void cache_clear_entries(void *entries, uint32_t capacity, XentCacheOps const *ops) {
 	for (uint32_t i = 0u; i < capacity; ++i) {
 		XentCachedTextKey *key = cache_key_at(entries, ops, i);
 		if (key->hash == 0u) continue;
-		free(key->text);
+		cached_text_key_release(key);
 		memset(cache_entry_at(entries, ops, i), 0, ops->entry_size);
 	}
 }
@@ -116,7 +155,7 @@ static void cache_place_existing(void *entries, uint32_t capacity, XentCacheOps 
 }
 
 static bool cache_rehash(XentCacheStorage *cache, XentCacheOps const *ops, uint32_t new_cap) {
-	void *new_entries = calloc(new_cap, ops->entry_size);
+	void *new_entries = cache_alloc_zeroed(new_cap, ops->entry_size);
 	if (!new_entries) return false;
 
 	for (uint32_t i = 0u; i < cache->capacity; ++i) {
@@ -144,7 +183,7 @@ static void cache_evict_all(XentCacheStorage *cache, XentCacheOps const *ops) {
 }
 
 static bool cache_lru_cutoff(XentCacheStorage const *cache, XentCacheOps const *ops, uint32_t target, uint64_t *out) {
-	uint64_t *ages = ( uint64_t * ) malloc(sizeof(*ages) * ( size_t ) cache->count);
+	uint64_t *ages = ( uint64_t * ) xent_alloc_internal(XENT_ALLOC_TEXT, sizeof(*ages) * ( size_t ) cache->count);
 	if (!ages) return false;
 
 	uint32_t age_count = 0u;
@@ -166,7 +205,7 @@ cache_retain_newer(void *old_entries, void *new_entries, uint32_t capacity, Xent
 		XentCachedTextKey *key   = ( XentCachedTextKey * ) entry;
 		if (key->hash == 0u) continue;
 		if (*cache_last_used_at(entry, ops) <= cutoff) {
-			free(key->text);
+			cached_text_key_release(key);
 			continue;
 		}
 		cache_place_existing(new_entries, capacity, ops, entry);
@@ -185,7 +224,7 @@ static void cache_evict_half(XentCacheStorage *cache, XentCacheOps const *ops) {
 		return;
 	}
 
-	void *new_entries = calloc(cache->capacity, ops->entry_size);
+	void *new_entries = cache_alloc_zeroed(cache->capacity, ops->entry_size);
 	if (!new_entries) {
 		cache_evict_all(cache, ops);
 		return;
@@ -202,7 +241,7 @@ static void cache_evict_half(XentCacheStorage *cache, XentCacheOps const *ops) {
 static bool cache_ensure_space(XentCacheStorage *cache, XentCacheOps const *ops) {
 	if (cache->count >= XENT_CACHE_MAX_CAP) cache_evict_half(cache, ops);
 	if (cache->capacity == 0u) {
-		cache->entries = calloc(64u, ops->entry_size);
+		cache->entries = cache_alloc_zeroed(64u, ops->entry_size);
 		if (!cache->entries) return false;
 		cache->capacity = 64u;
 		return true;

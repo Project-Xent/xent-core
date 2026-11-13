@@ -12,7 +12,7 @@ bool xent_sem_setlabel(XentCtx *ctx, XentNodeId node, char const *label) {
 	uint32_t index = xent_live_index(ctx, node);
 	if (!index) return false;
 
-	char *copy = xent_strdup(label ? label : "");
+	char *copy = xent_strdup(XENT_ALLOC_SEMANTICS, label ? label : "");
 	if (!copy) return false;
 
 	free(ctx->nodes.semantics.label [index]);

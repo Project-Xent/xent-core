@@ -3,31 +3,19 @@
 
 #include "xent_types.h"
 
-
 bool           xent_setproto(XentCtx *ctx, XentNodeId node, XentProtocol protocol);
 
-/**
- * @brief Copy style inputs (protocol, size, flex, stack, grid template/placement,
- * measure text/font) from @p src onto @p dst. Computed layout rects are not copied.
- * Used when absorbing a seeded orphan onto a live Host node.
- */
 bool           xent_copystyle(XentCtx *ctx, XentNodeId dst, XentNodeId src);
 
 bool           xent_setsize(XentCtx *ctx, XentNodeId node, XentSize size);
-/** @brief Set one style axis without touching the other (NAN = auto). */
 bool           xent_setw(XentCtx *ctx, XentNodeId node, float width);
 bool           xent_seth(XentCtx *ctx, XentNodeId node, float height);
 bool           xent_setwpct(XentCtx *ctx, XentNodeId node, float fraction);
 bool           xent_sethpct(XentCtx *ctx, XentNodeId node, float fraction);
 bool           xent_setsizepct(XentCtx *ctx, XentNodeId node, XentSize fraction);
 bool           xent_setaspect(XentCtx *ctx, XentNodeId node, float aspect_ratio);
-/**
- * @brief Size an axis to its children's extent (fit-content / wrap-content) when that
- * axis is otherwise auto. Opt-in: default is auto = fill available space. Currently
- * applies to FLEX containers; the wrapped axis should hold children whose size on that
- * axis is definite or text-derived (a child that itself fills the parent is circular).
- */
 bool           xent_setfit(XentCtx *ctx, XentNodeId node, bool wrap_width, bool wrap_height);
+bool           xent_setscroller(XentCtx *ctx, XentNodeId node, bool scroller);
 bool           xent_setminsize(XentCtx *ctx, XentNodeId node, XentSize size);
 bool           xent_setmaxsize(XentCtx *ctx, XentNodeId node, XentSize size);
 bool           xent_setm(XentCtx *ctx, XentNodeId node, XentInsets margin);
@@ -84,6 +72,5 @@ bool               xent_rounding(XentCtx const *ctx);
 bool               xent_layout(XentCtx *ctx, XentNodeId root, float available_width, float available_height);
 bool               xent_layout_rect(XentCtx const *ctx, XentNodeId node, XentRect *out_rect);
 XentLayoutStrategy xent_layout_strategy(XentCtx const *ctx);
-
 
 #endif

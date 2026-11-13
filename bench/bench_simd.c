@@ -8,7 +8,7 @@
 
 float xent_simd_sum_f32(float const *values, unsigned int count);
 void  xent_simd_fill_f32(float *values, unsigned int count, float value);
-bool  xent_is_simd_enabled(void);
+bool  xent_simd_enabled(void);
 
 #ifdef _WIN32
   #include <windows.h>
@@ -123,7 +123,7 @@ int main(void) {
 	srand(42);
 
 	printf("=== xent-core SIMD microbenchmark ===\n");
-	printf("backend: %s\n\n", xent_is_simd_enabled() ? "ISPC (sse4+avx2)" : "scalar fallback");
+	printf("backend: %s\n\n", xent_simd_enabled() ? "ISPC (sse4+avx2)" : "scalar fallback");
 
 	unsigned int sizes []  = {64, 256, 1024, 4096, 16384, 65536, 262144, 1048576};
 	int          nsizes    = ( int ) (sizeof(sizes) / sizeof(sizes [0]));

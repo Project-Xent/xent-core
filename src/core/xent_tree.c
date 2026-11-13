@@ -9,12 +9,6 @@ uint32_t xent_live_index(XentCtx const *ctx, XentNodeId node) {
 	return index;
 }
 
-XentNodeId xent_handle_of(XentCtx const *ctx, uint32_t index) {
-	if (!ctx || index == 0u || index >= ctx->nodes.capacity) return XENT_NODE_INVALID;
-	if (!ctx->nodes.lifetime.alive [index]) return XENT_NODE_INVALID;
-	return xent_make_node_id(index, ctx->nodes.lifetime.generation [index]);
-}
-
 bool        xent_node_valid(XentCtx const *ctx, XentNodeId node) { return xent_live_index(ctx, node) != 0u; }
 
 static bool push_free_index(XentCtx *ctx, uint32_t index) {
@@ -60,7 +54,6 @@ static uint32_t alloc_slot(XentCtx *ctx, uint32_t *out_generation) {
 		return index;
 	}
 
-	/* Highest usable index is UINT32_MAX-1 so (index+1) capacity never wraps. */
 	if (ctx->nodes.count >= UINT32_MAX - 1u) return 0u;
 	uint32_t index   = ctx->nodes.count + 1u;
 	ctx->nodes.count = index;
@@ -80,8 +73,7 @@ XentNodeId xent_node_create(XentCtx *ctx) {
 	uint32_t index = alloc_slot(ctx, &gen);
 	if (!index) return XENT_NODE_INVALID;
 
-	free(ctx->nodes.text.content [index]);
-	ctx->nodes.text.content [index] = NULL;
+	xent_text_release_node(&ctx->nodes, index);
 	free(ctx->nodes.semantics.label [index]);
 	ctx->nodes.semantics.label [index] = NULL;
 	xent_grid_def_free(ctx->nodes.grid.def [index]);
@@ -90,7 +82,7 @@ XentNodeId xent_node_create(XentCtx *ctx) {
 	xent_arena_reset_node(&ctx->nodes, index);
 	ctx->nodes.lifetime.generation [index] = gen;
 	ctx->nodes.lifetime.alive [index]      = 1u;
-	XentNodeId id                          = xent_make_node_id(index, gen);
+	XentNodeId id                          = xent_node_make(index, gen);
 	xent_mark_dirty(ctx, id, XENT_DIRTY_LAYOUT);
 	return id;
 }
@@ -98,8 +90,7 @@ XentNodeId xent_node_create(XentCtx *ctx) {
 static void destroy_single_node(XentCtx *ctx, XentNodeId node, XentNodeId old_parent) {
 	uint32_t index = xent_node_index(node);
 
-	free(ctx->nodes.text.content [index]);
-	ctx->nodes.text.content [index]         = NULL;
+	xent_text_release_node(&ctx->nodes, index);
 	ctx->nodes.text.intrinsic_valid [index] = 0u;
 	free(ctx->nodes.semantics.label [index]);
 	ctx->nodes.semantics.label [index] = NULL;
@@ -120,7 +111,6 @@ static void destroy_single_node(XentCtx *ctx, XentNodeId node, XentNodeId old_pa
 	ctx->nodes.layout.dirty_queued [index]   = 0u;
 	notify_lifecycle(ctx, node, XENT_NODE_EVENT_DESTROY, old_parent, XENT_NODE_INVALID);
 
-	/* UINT32_MAX is the final generation: retire the slot so gen-1 handles never revive. */
 	if (gen == UINT32_MAX) return;
 	ctx->nodes.lifetime.generation [index] = gen + 1u;
 	( void ) push_free_index(ctx, index);
@@ -178,13 +168,16 @@ static bool is_ancestor_index(XentCtx const *ctx, uint32_t ancestor, uint32_t no
 	return false;
 }
 
-static bool
-place_resolve_nodes(XentCtx *ctx, XentNodeId parent, XentNodeId child, uint32_t *parent_index, uint32_t *child_index) {
-	*parent_index = xent_live_index(ctx, parent);
-	*child_index  = xent_live_index(ctx, child);
-	if (!*parent_index || !*child_index || *parent_index == *child_index) return false;
-	if (ctx->node_observer_dispatch_depth) return false;
-	return !is_ancestor_index(ctx, *parent_index, *child_index);
+typedef struct Place {
+	XentNodeId parent, child, before;
+	uint32_t   pi, ci, bi;
+} Place;
+
+static bool place_resolve(XentCtx *ctx, Place *p) {
+	p->pi = xent_live_index(ctx, p->parent);
+	p->ci = xent_live_index(ctx, p->child);
+	if (!p->pi || !p->ci || p->pi == p->ci || ctx->node_observer_dispatch_depth) return false;
+	return !is_ancestor_index(ctx, p->pi, p->ci);
 }
 
 static bool place_mode_ok(XentPlaceMode mode, XentNodeId parent, XentNodeId old_parent) {
@@ -194,68 +187,46 @@ static bool place_mode_ok(XentPlaceMode mode, XentNodeId parent, XentNodeId old_
 	return true;
 }
 
-static bool place_resolve_before(XentCtx *ctx, XentNodeId parent, XentNodeId before, uint32_t *before_index) {
-	if (before == XENT_NODE_INVALID) {
-		*before_index = 0u;
+static bool place_resolve_before(XentCtx *ctx, Place *p) {
+	if (p->before == XENT_NODE_INVALID) {
+		p->bi = 0u;
 		return true;
 	}
-	*before_index = xent_live_index(ctx, before);
-	if (!*before_index) return false;
-	return ctx->nodes.topology.parent [*before_index] == parent;
+	p->bi = xent_live_index(ctx, p->before);
+	return p->bi && ctx->nodes.topology.parent [p->bi] == p->parent;
 }
 
-static bool place_is_noop(
-  XentCtx const *ctx, XentNodeId parent, uint32_t parent_index, XentNodeId child, uint32_t child_index,
-  XentNodeId before, uint32_t before_index
-) {
-	if (ctx->nodes.topology.parent [child_index] != parent) return false;
-	if (before_index == 0u) return ctx->nodes.topology.last_child [parent_index] == child;
-	return ctx->nodes.topology.next_sibling [child_index] == before;
+static bool place_is_noop(XentCtx const *ctx, Place const *p) {
+	XentNodeTopologyStore const *t = &ctx->nodes.topology;
+	if (t->parent [p->ci] != p->parent) return false;
+	if (p->bi == 0u) return t->last_child [p->pi] == p->child;
+	return t->next_sibling [p->ci] == p->before;
 }
 
-static void link_before(
-  XentCtx *ctx, uint32_t parent_index, XentNodeId parent, XentNodeId child, uint32_t child_index, XentNodeId before,
-  uint32_t before_index
-) {
-	if (before_index == 0u) {
-		if (ctx->nodes.topology.first_child [parent_index] == XENT_NODE_INVALID) {
-			ctx->nodes.topology.first_child [parent_index] = child;
-			ctx->nodes.topology.last_child [parent_index]  = child;
-		}
-		else {
-			XentNodeId tail                                          = ctx->nodes.topology.last_child [parent_index];
-			ctx->nodes.topology.next_sibling [xent_node_index(tail)] = child;
-			ctx->nodes.topology.prev_sibling [child_index]           = tail;
-			ctx->nodes.topology.last_child [parent_index]            = child;
-		}
-		ctx->nodes.topology.next_sibling [child_index] = XENT_NODE_INVALID;
-	}
-	else {
-		XentNodeId prev                                 = ctx->nodes.topology.prev_sibling [before_index];
-		ctx->nodes.topology.prev_sibling [child_index]  = prev;
-		ctx->nodes.topology.next_sibling [child_index]  = before;
-		ctx->nodes.topology.prev_sibling [before_index] = child;
-		if (prev == XENT_NODE_INVALID) ctx->nodes.topology.first_child [parent_index] = child;
-		else ctx->nodes.topology.next_sibling [xent_node_index(prev)] = child;
-	}
-	ctx->nodes.topology.parent [child_index]        = parent;
-	ctx->nodes.topology.child_count [parent_index] += 1u;
+static void link_before(XentCtx *ctx, Place const *p) {
+	XentNodeTopologyStore *t    = &ctx->nodes.topology;
+	XentNodeId             prev = p->bi ? t->prev_sibling [p->bi] : t->last_child [p->pi];
+	t->prev_sibling [p->ci]     = prev;
+	t->next_sibling [p->ci]     = p->before;
+	if (p->bi) t->prev_sibling [p->bi] = p->child;
+	else t->last_child [p->pi] = p->child;
+	if (prev == XENT_NODE_INVALID) t->first_child [p->pi] = p->child;
+	else t->next_sibling [xent_node_index(prev)] = p->child;
+	t->parent [p->ci]       = p->parent;
+	t->child_count [p->pi] += 1u;
 }
 
 static bool place_before(XentCtx *ctx, XentNodeId parent, XentNodeId child, XentNodeId before, XentPlaceMode mode) {
-	uint32_t parent_index;
-	uint32_t child_index;
-	uint32_t before_index;
-	if (!place_resolve_nodes(ctx, parent, child, &parent_index, &child_index)) return false;
-
-	XentNodeId old_parent = ctx->nodes.topology.parent [child_index];
+	Place p = {.parent = parent, .child = child, .before = before};
+	if (!place_resolve(ctx, &p)) return false;
+	XentNodeId old_parent = ctx->nodes.topology.parent [p.ci];
 	if (!place_mode_ok(mode, parent, old_parent)) return false;
 	if (before == child) return old_parent == parent;
-	if (!place_resolve_before(ctx, parent, before, &before_index)) return false;
-	if (place_is_noop(ctx, parent, parent_index, child, child_index, before, before_index)) return true;
+	if (!place_resolve_before(ctx, &p)) return false;
+	if (place_is_noop(ctx, &p)) return true;
 
-	if (old_parent != XENT_NODE_INVALID) unlink_child(ctx, xent_node_index(old_parent), child_index);
-	link_before(ctx, parent_index, parent, child, child_index, before, before_index);
+	if (old_parent != XENT_NODE_INVALID) unlink_child(ctx, xent_node_index(old_parent), p.ci);
+	link_before(ctx, &p);
 
 	if (old_parent != XENT_NODE_INVALID && old_parent != parent)
 		xent_mark_dirty(ctx, old_parent, XENT_DIRTY_SUBTREE | XENT_DIRTY_LAYOUT);

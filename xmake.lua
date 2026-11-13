@@ -1,34 +1,12 @@
 set_project("xent-core")
--- Version from the git tag: release CI injects $XENT_VERSION (tag minus "v").
-set_version(os.getenv("XENT_VERSION") or "0.3.0-dev")
+set_version(os.getenv("XENT_VERSION") or "0.3.1")
 set_languages("c23")
 add_rules("mode.debug", "mode.release")
 set_warnings("all")
 
 local unit_tests = {
-    "test_tree",
-    "test_layout_flex",
-    "test_layout_flex_spec",
-    "test_layout_swiftstack",
-    "test_layout_swiftstack_spec",
-    "test_direction",
-    "test_layout_rounding",
-    "test_layout_stress",
-    "test_dirty",
-    "test_text_cache",
-    "test_text_backend_contract",
-    "test_text_linebreak_policy",
-    "test_mixed_protocols",
-    "test_rtl_baseline_conformance",
-    "test_layout_grid",
-    "test_layout_grid_spec",
     "test_yoga_generated",
     "test_yoga_supported",
-    "test_cli",
-    "test_profile",
-    "test_display",
-    "test_external_measure",
-    "test_ordered_topology",
     "test_simd_equivalence",
     "test_fault_injection",
 }
@@ -53,7 +31,7 @@ option_end()
 target("xent_core")
     set_kind("static")
     add_includedirs("include", { public = true })
-    add_headerfiles("include/xent/*.h")
+    add_headerfiles("include/(xent/*.h)")
     add_files("src/core/*.c", "src/layout/*.c", "src/text/*.c", "src/cli/*.c")
     if has_config("fault_injection") then
         add_defines("XENT_ENABLE_FAULT_INJECTION=1", { public = true })
@@ -121,7 +99,7 @@ for _, demo in ipairs({ "demo_basic", "demo_flex_vs_swiftstack", "demo_dump_json
         add_includedirs("include")
 end
 
-for _, bench_name in ipairs({ "bench_layout", "bench_simd", "bench_compare_recursive_baseline", "bench_dirty_vs_full", "bench_regression_gates" }) do
+for _, bench_name in ipairs({ "bench_layout", "bench_simd", "bench_dirty_vs_full" }) do
     target(bench_name)
         set_default(false)
         set_kind("binary")

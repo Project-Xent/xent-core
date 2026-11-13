@@ -32,7 +32,7 @@ static bool is_flow_layout_container(XentCtx const *ctx, XentNodeId node) {
 
 static bool is_auto_sized_parent(XentCtx const *ctx, XentNodeId node) {
 	return (isnan(ctx->nodes.layout.style_w [xent_node_index(node)])
-			 && isnan(ctx->nodes.layout.style_w_percent [xent_node_index(node)]))
+	         && isnan(ctx->nodes.layout.style_w_percent [xent_node_index(node)]))
 	    || (isnan(ctx->nodes.layout.style_h [xent_node_index(node)]) && isnan(ctx->nodes.layout.style_h_percent [xent_node_index(node)]));
 }
 
@@ -41,13 +41,6 @@ static bool can_promote_dirty_root(XentCtx const *ctx, XentNodeId node) {
 }
 
 static XentNodeId promote_dirty_root(XentCtx const *ctx, XentNodeId dirty_node, XentNodeId root) {
-	/* A node's geometry is decided by its PARENT's layout pass (absolute placement,
-	 * flex distribution), and run_dirty_plan back-derives each recompute root's
-	 * origin as abs_x - abs_pos_x — valid only while that root's own placement
-	 * inputs are unchanged. The dirty node itself can therefore never be its own
-	 * recompute root: when its abs_pos/size changed, the stale abs_x cancels the
-	 * new offset and the node is re-laid in place (frozen layout animations).
-	 * Always hop to the parent first; the flow climb below is unchanged. */
 	XentNodeId candidate = dirty_node;
 	XentNodeId parent    = ctx->nodes.topology.parent [xent_node_index(dirty_node)];
 	if (parent != XENT_NODE_INVALID) candidate = parent;
@@ -155,8 +148,8 @@ static uint32_t count_dirty_nodes(XentCtx *ctx, XentNodeId root) {
 	for (uint32_t i = 0; i < ctx->dirty_count; ++i) {
 		XentNodeId node = ctx->dirty_nodes [i];
 		if (xent_node_valid(ctx, node)
-			&& xent_dirty_direct(ctx->nodes.layout.dirty_flags [xent_node_index(node)])
-			&& is_in_subtree(ctx, root, node))
+		    && xent_dirty_direct(ctx->nodes.layout.dirty_flags [xent_node_index(node)])
+		    && is_in_subtree(ctx, root, node))
 		{
 			dirty_count += 1u;
 		}
@@ -181,8 +174,8 @@ static void collect_dirty_nodes(XentCtx const *ctx, XentNodeId root, XentDirtyPl
 	for (uint32_t i = 0; i < ctx->dirty_count; ++i) {
 		XentNodeId node = ctx->dirty_nodes [i];
 		if (xent_node_valid(ctx, node)
-			&& xent_dirty_direct(ctx->nodes.layout.dirty_flags [xent_node_index(node)])
-			&& is_in_subtree(ctx, root, node))
+		    && xent_dirty_direct(ctx->nodes.layout.dirty_flags [xent_node_index(node)])
+		    && is_in_subtree(ctx, root, node))
 		{
 			plan->direct_dirty [write++] = node;
 		}
@@ -237,10 +230,6 @@ static void run_dirty_plan(XentCtx *ctx, XentDirtyPlan const *plan) {
 		  = ctx->nodes.layout.abs_x [xent_node_index(root)] - ctx->nodes.layout.abs_pos_x [xent_node_index(root)];
 		float origin_y
 		  = ctx->nodes.layout.abs_y [xent_node_index(root)] - ctx->nodes.layout.abs_pos_y [xent_node_index(root)];
-		/* The root's decided size came from its parent's layout pass, which is
-		 * unchanged here. Honor it as definite when that parent is a flow
-		 * container (which sizes its children) so a wrap-content root does not
-		 * re-derive a different max-content size than the full pass produced. */
 		XentNodeId parent      = ctx->nodes.topology.parent [xent_node_index(root)];
 		bool       flow_parent = parent != XENT_NODE_INVALID && is_flow_layout_container(ctx, parent);
 		xent_layout_dispatch_node(&(XentLayoutRequest) {
@@ -264,8 +253,8 @@ select_layout_strategy(XentCtx *ctx, XentLayoutPlanInputs const *inputs, XentDir
 
 	if (!root_dirty && snapshot_valid && inputs->direct_dirty_count == 0u) return XENT_LAYOUT_STRATEGY_NONE;
 	if (!root_dirty
-		&& snapshot_valid
-		&& build_dirty_plan(ctx, inputs->root, inputs->total_nodes, inputs->direct_dirty_count, dirty_plan))
+	    && snapshot_valid
+	    && build_dirty_plan(ctx, inputs->root, inputs->total_nodes, inputs->direct_dirty_count, dirty_plan))
 		return XENT_LAYOUT_STRATEGY_DIRTY;
 	return XENT_LAYOUT_STRATEGY_FULL;
 }

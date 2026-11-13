@@ -55,7 +55,7 @@ int main(void) {
 	xent_node_append(ctx, body, text);
 
 	xent_layout(ctx, root, 800.0f, 600.0f);
-	xent_dump_layout_text(ctx, root, stdout);
+	xent_dump_layouttext(ctx, root, stdout);
 
 	xent_ctx_destroy(ctx);
 	return 0;

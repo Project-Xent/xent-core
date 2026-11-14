@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2
+
+- pinned every public enum to four bytes with `static_assert`, so bindings can
+  treat them uniformly as `int32`;
+- kept `long double`, `__int128` and bit-fields out of the public headers.
+
 ## 0.3.1
 
 - added `xent_setscroller`: a flex container marked as a scroller lays its

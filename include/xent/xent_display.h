@@ -1,6 +1,8 @@
 #ifndef XENT_DISPLAY_H
 #define XENT_DISPLAY_H
 
+#include <assert.h>
+
 #include "xent_types.h"
 
 typedef uint64_t XentResourceId;
@@ -223,5 +225,9 @@ void                   xent_dl_free(XentDl *list);
 uint32_t               xent_dl_ncmd(XentDl const *list);
 XentDlCmd const       *xent_dl_cmd(XentDl const *list, uint32_t index);
 char const            *xent_dl_text(XentDl const *list, uint32_t offset, uint32_t len);
+
+static_assert(sizeof(XentStrokeCap) == 4, "XentStrokeCap crosses the ABI as int32");
+static_assert(sizeof(XentDlOp) == 4, "XentDlOp crosses the ABI as int32");
+static_assert(sizeof(XentImageFit) == 4, "XentImageFit crosses the ABI as int32");
 
 #endif

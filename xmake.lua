@@ -1,7 +1,10 @@
 set_project("xent-core")
-set_version(os.getenv("XENT_VERSION") or "0.3.1")
+set_version(os.getenv("XENT_VERSION") or "0.3.2")
 set_languages("c23")
 add_rules("mode.debug", "mode.release")
+if is_plat("mingw") and is_mode("release") then
+    set_symbols("none")
+end
 set_warnings("all")
 
 local unit_tests = {

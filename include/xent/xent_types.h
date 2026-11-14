@@ -1,6 +1,8 @@
 #ifndef XENT_TYPES_H
 #define XENT_TYPES_H
 
+#include <assert.h>
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -336,5 +338,25 @@ typedef struct XentCfg {
 	bool     enable_pixel_rounding;
 	bool     enable_simd;
 } XentCfg;
+
+static_assert(sizeof(XentProtocol) == 4, "XentProtocol crosses the ABI as int32");
+static_assert(sizeof(XentGridSizeMode) == 4, "XentGridSizeMode crosses the ABI as int32");
+static_assert(sizeof(XentFlexDirection) == 4, "XentFlexDirection crosses the ABI as int32");
+static_assert(sizeof(XentFlexJustify) == 4, "XentFlexJustify crosses the ABI as int32");
+static_assert(sizeof(XentFlexAlign) == 4, "XentFlexAlign crosses the ABI as int32");
+static_assert(sizeof(XentFlexWrap) == 4, "XentFlexWrap crosses the ABI as int32");
+static_assert(sizeof(XentFlexAlignContent) == 4, "XentFlexAlignContent crosses the ABI as int32");
+static_assert(sizeof(XentAxis) == 4, "XentAxis crosses the ABI as int32");
+static_assert(sizeof(XentStackAlign) == 4, "XentStackAlign crosses the ABI as int32");
+static_assert(sizeof(XentDirection) == 4, "XentDirection crosses the ABI as int32");
+static_assert(sizeof(XentSemRole) == 4, "XentSemRole crosses the ABI as int32");
+static_assert(sizeof(XentDirtyFlags) == 4, "XentDirtyFlags crosses the ABI as int32");
+static_assert(sizeof(XentLayoutStrategy) == 4, "XentLayoutStrategy crosses the ABI as int32");
+static_assert(sizeof(XentLineBreakPolicy) == 4, "XentLineBreakPolicy crosses the ABI as int32");
+static_assert(sizeof(XentMeasureMode) == 4, "XentMeasureMode crosses the ABI as int32");
+static_assert(sizeof(XentChildOrder) == 4, "XentChildOrder crosses the ABI as int32");
+static_assert(sizeof(XentNodeEventKind) == 4, "XentNodeEventKind crosses the ABI as int32");
+static_assert(sizeof(XentFontSlant) == 4, "XentFontSlant crosses the ABI as int32");
+static_assert(sizeof(XentTextTrim) == 4, "XentTextTrim crosses the ABI as int32");
 
 #endif

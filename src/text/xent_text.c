@@ -11,7 +11,7 @@ static bool is_valid_measure_mode(XentMeasureMode mode) {
 	    || mode == XENT_MEASURE_MIN_CONTENT;
 }
 
-static bool is_valid_trim(XentTextTrim trim) { return trim <= XENT_TEXT_TRIM_WORD_ELLIPSIS; }
+static bool is_valid_trim(XentTextTrim trim) { return trim <= XENT_TEXT_TRIM_PATH_ELLIPSIS; }
 
 static bool utf8_boundary(char const *text, size_t text_len, uint32_t at) {
 	return at == text_len || (( uint8_t ) text [at] & 0xc0u) != 0x80u;

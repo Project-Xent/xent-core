@@ -162,7 +162,7 @@ bool xent_dl_drawtextstyle(
 	if (!b || !style || !display_finite_rect(bounds) || !display_finite(style->font_size) || style->font_size <= 0.0f)
 		return false;
 	if (style->h_align > 2u || style->v_align > 2u) return false;
-	if (style->trim > XENT_TEXT_TRIM_WORD_ELLIPSIS) return false;
+	if (style->trim > XENT_TEXT_TRIM_PATH_ELLIPSIS) return false;
 	uint32_t off = 0u, len = 0u;
 	if (!display_append_string(b, utf8, &off, &len)) return false;
 	uint32_t font_off = 0u, font_len = 0u;

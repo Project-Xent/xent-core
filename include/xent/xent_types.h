@@ -234,6 +234,8 @@ typedef enum XentTextTrim
 	XENT_TEXT_TRIM_CHAR_ELLIPSIS = 2,
 	XENT_TEXT_TRIM_WORD          = 3,
 	XENT_TEXT_TRIM_WORD_ELLIPSIS = 4,
+	/* Trims inside a path, keeping its start and its last '\' or '/' segment ("C:\Users\…\file.txt"). */
+	XENT_TEXT_TRIM_PATH_ELLIPSIS = 5,
 } XentTextTrim;
 
 typedef struct XentTextRun {

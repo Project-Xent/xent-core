@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.3
+
+- added `XENT_TEXT_TRIM_PATH_ELLIPSIS`: trims the middle of a path, keeping
+  its start and the segment after the last `\` or `/`;
+- inherited font size and weight through the tree: a NaN size or 0 weight on
+  any node inherits from the nearest ancestor that sets one, defaulting to
+  `XENT_FONT_SIZE_DEFAULT` (14) / `XENT_FONT_WEIGHT_DEFAULT` (400).
+  `xent_fontsize` / `xent_fontweight` return the resolved values, and setting
+  either on a container invalidates the text below it;
+- added `frame` and `nine` (nine-grid insets) to the display-list image
+  command, with `xent_dl_drawframe`;
+
+### Breaking changes
+
+| Change | Migration |
+| --- | --- |
+| Nodes default to an inherited font size and weight instead of 14 / 400 | Set the size or weight on the text node when an ancestor sets a different one |
+
 ## 0.3.2
 
 - pinned every public enum to four bytes with `static_assert`, so bindings can

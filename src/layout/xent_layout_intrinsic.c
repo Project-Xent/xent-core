@@ -50,10 +50,8 @@ make_intrinsic_input(XentCtx const *ctx, XentNodeId node, float available_w, flo
 
 static bool has_intrinsic_cache(XentCtx const *ctx, XentNodeId node, XentIntrinsicInput const *input) {
 	return ctx->nodes.text.intrinsic_valid [xent_node_index(node)] != 0u
-	    && ctx->nodes.text.intrinsic_font_size [xent_node_index(node)]
-	         == ctx->nodes.text.font_size [xent_node_index(node)]
-	    && ctx->nodes.text.intrinsic_font_weight [xent_node_index(node)]
-	         == ctx->nodes.text.font_weight [xent_node_index(node)]
+	    && ctx->nodes.text.intrinsic_font_size [xent_node_index(node)] == xent_fontsize(ctx, node)
+	    && ctx->nodes.text.intrinsic_font_weight [xent_node_index(node)] == xent_fontweight(ctx, node)
 	    && ctx->nodes.text.intrinsic_constraint_w [xent_node_index(node)] == input->text_constraint
 	    && ctx->nodes.text.intrinsic_line_break_policy [xent_node_index(node)] == ( uint8_t ) input->line_break_policy
 	    && ctx->nodes.text.intrinsic_width_mode [xent_node_index(node)] == ( uint8_t ) input->width_mode;
@@ -70,10 +68,10 @@ static XentTextMetrics read_intrinsic_cache(XentCtx const *ctx, XentNodeId node)
 
 static void
 write_intrinsic_cache(XentCtx *ctx, XentNodeId node, XentIntrinsicInput const *input, XentTextMetrics const *metrics) {
-	ctx->nodes.text.intrinsic_valid [xent_node_index(node)]        = 1u;
-	ctx->nodes.text.intrinsic_constraint_w [xent_node_index(node)] = input->text_constraint;
-	ctx->nodes.text.intrinsic_font_size [xent_node_index(node)]    = ctx->nodes.text.font_size [xent_node_index(node)];
-	ctx->nodes.text.intrinsic_font_weight [xent_node_index(node)] = ctx->nodes.text.font_weight [xent_node_index(node)];
+	ctx->nodes.text.intrinsic_valid [xent_node_index(node)]             = 1u;
+	ctx->nodes.text.intrinsic_constraint_w [xent_node_index(node)]      = input->text_constraint;
+	ctx->nodes.text.intrinsic_font_size [xent_node_index(node)]         = xent_fontsize(ctx, node);
+	ctx->nodes.text.intrinsic_font_weight [xent_node_index(node)]       = xent_fontweight(ctx, node);
 	ctx->nodes.text.intrinsic_line_break_policy [xent_node_index(node)] = ( uint8_t ) input->line_break_policy;
 	ctx->nodes.text.intrinsic_width_mode [xent_node_index(node)]        = ( uint8_t ) input->width_mode;
 	ctx->nodes.text.intrinsic_w [xent_node_index(node)]                 = metrics->width;
@@ -106,8 +104,8 @@ measure_intrinsic_text(XentCtx *ctx, XentNodeId node, XentIntrinsicInput const *
 	  .runs              = ctx->nodes.text.runs [index],
 	  .run_count         = ctx->nodes.text.run_count [index],
 	  .font_family       = ctx->nodes.text.font_family [index],
-	  .font_size         = ctx->nodes.text.font_size [index],
-	  .font_weight       = ctx->nodes.text.font_weight [index],
+	  .font_size         = xent_fontsize(ctx, node),
+	  .font_weight       = xent_fontweight(ctx, node),
 	  .width_constraint  = input->text_constraint,
 	  .max_lines         = ctx->nodes.text.max_lines [index],
 	  .trim              = ( XentTextTrim ) ctx->nodes.text.trim [index],

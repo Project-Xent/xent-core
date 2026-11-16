@@ -1,3 +1,4 @@
+#include <math.h>
 #include "../xent_internal.h"
 
 static bool is_valid_line_break_policy(XentLineBreakPolicy policy) {
@@ -180,17 +181,46 @@ char const *xent_node_text(XentCtx const *ctx, XentNodeId node) {
 	return ctx->nodes.text.content [xent_node_index(node)];
 }
 
+static void text_subtree_restyled(XentCtx *ctx, XentNodeId root) {
+	XentNodeId node = root;
+	while (node != XENT_NODE_INVALID) {
+		text_node_restyled(ctx, node);
+		XentNodeId next = xent_node_first(ctx, node);
+		while (next == XENT_NODE_INVALID && node != root) {
+			next = xent_node_next(ctx, node);
+			node = xent_node_parent(ctx, node);
+		}
+		node = next;
+	}
+}
+
 bool xent_setfontsize(XentCtx *ctx, XentNodeId node, float font_size) {
-	if (!xent_node_valid(ctx, node) || font_size <= 0.0f) return false;
+	if (!xent_node_valid(ctx, node) || !(isnan(font_size) || font_size > 0.0f)) return false;
 	ctx->nodes.text.font_size [xent_node_index(node)] = font_size;
-	text_node_restyled(ctx, node);
+	text_subtree_restyled(ctx, node);
 	return true;
+}
+
+float xent_fontsize(XentCtx const *ctx, XentNodeId node) {
+	for (; xent_node_valid(ctx, node); node = xent_node_parent(ctx, node)) {
+		float size = ctx->nodes.text.font_size [xent_node_index(node)];
+		if (!isnan(size)) return size;
+	}
+	return XENT_FONT_SIZE_DEFAULT;
+}
+
+uint16_t xent_fontweight(XentCtx const *ctx, XentNodeId node) {
+	for (; xent_node_valid(ctx, node); node = xent_node_parent(ctx, node)) {
+		uint16_t weight = ctx->nodes.text.font_weight [xent_node_index(node)];
+		if (weight) return weight;
+	}
+	return XENT_FONT_WEIGHT_DEFAULT;
 }
 
 bool xent_setfontweight(XentCtx *ctx, XentNodeId node, uint16_t weight) {
 	if (!xent_node_valid(ctx, node)) return false;
 	ctx->nodes.text.font_weight [xent_node_index(node)] = weight;
-	text_node_restyled(ctx, node);
+	text_subtree_restyled(ctx, node);
 	return true;
 }
 

@@ -125,6 +125,8 @@ typedef struct XentDlCmd {
 			XentRect       bounds;
 			XentResourceId image;
 			XentImageFit   stretch;
+			uint32_t       frame;
+			XentInsets     nine;
 		} image;
 
 		struct {
@@ -197,6 +199,9 @@ bool xent_dl_drawtextstyle(
   XentDlBuilder *b, XentRect bounds, char const *utf8, XentTextStyle const *style, XentColor color
 );
 bool xent_dl_drawimg(XentDlBuilder *b, XentRect bounds, XentResourceId image, XentImageFit stretch);
+bool xent_dl_drawframe(
+  XentDlBuilder *b, XentRect bounds, XentResourceId image, XentImageFit stretch, uint32_t frame, XentInsets nine
+);
 bool xent_dl_pushcliprect(XentDlBuilder *b, XentRect rect);
 bool xent_dl_pushcliprrect(XentDlBuilder *b, XentRect rect, float radius);
 bool xent_dl_popclip(XentDlBuilder *b);

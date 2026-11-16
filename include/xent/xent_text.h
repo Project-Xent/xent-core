@@ -22,11 +22,16 @@ struct XentTextBackend {
 	void             *userdata;
 };
 
-bool                   xent_text_backendvalid(XentTextBackend const *backend);
+bool xent_text_backendvalid(XentTextBackend const *backend);
 
-bool                   xent_settext(XentCtx *ctx, XentNodeId node, char const *text);
+bool xent_settext(XentCtx *ctx, XentNodeId node, char const *text);
+#define XENT_FONT_SIZE_DEFAULT   14.0f
+#define XENT_FONT_WEIGHT_DEFAULT 400u
+
 bool                   xent_setfontsize(XentCtx *ctx, XentNodeId node, float font_size);
 bool                   xent_setfontweight(XentCtx *ctx, XentNodeId node, uint16_t weight);
+float                  xent_fontsize(XentCtx const *ctx, XentNodeId node);
+uint16_t               xent_fontweight(XentCtx const *ctx, XentNodeId node);
 bool                   xent_setfontfamily(XentCtx *ctx, XentNodeId node, char const *family);
 bool                   xent_setlinebreak(XentCtx *ctx, XentNodeId node, XentLineBreakPolicy policy);
 XentLineBreakPolicy    xent_linebreak(XentCtx const *ctx, XentNodeId node);

@@ -195,11 +195,19 @@ bool xent_dl_drawtext(
 }
 
 bool xent_dl_drawimg(XentDlBuilder *b, XentRect bounds, XentResourceId image, XentImageFit stretch) {
+	return xent_dl_drawframe(b, bounds, image, stretch, 0u, (XentInsets) {0});
+}
+
+bool xent_dl_drawframe(
+  XentDlBuilder *b, XentRect bounds, XentResourceId image, XentImageFit stretch, uint32_t frame, XentInsets nine
+) {
 	if (image == XENT_RESOURCE_INVALID || !display_finite_rect(bounds)) return false;
 	XentDlCmd cmd       = {.op = XENT_DL_DRAWIMG};
 	cmd.u.image.bounds  = bounds;
 	cmd.u.image.image   = image;
 	cmd.u.image.stretch = stretch;
+	cmd.u.image.frame   = frame;
+	cmd.u.image.nine    = nine;
 	return display_push(b, cmd);
 }
 

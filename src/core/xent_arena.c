@@ -212,8 +212,8 @@ static void init_text_defaults(XentNodeStore *nodes, uint32_t i) {
 	nodes->text.font_family [i]                 = NULL;
 	nodes->text.runs [i]                        = NULL;
 	nodes->text.run_count [i]                   = 0u;
-	nodes->text.font_size [i]                   = 14.0f;
-	nodes->text.font_weight [i]                 = 400u;
+	nodes->text.font_size [i]                   = NAN;
+	nodes->text.font_weight [i]                 = 0u;
 	nodes->text.line_break_policy [i]           = ( uint8_t ) XENT_LINEBREAK_CHARWRAP;
 	nodes->text.trim [i]                        = ( uint8_t ) XENT_TEXT_TRIM_NONE;
 	nodes->text.max_lines [i]                   = 0u;

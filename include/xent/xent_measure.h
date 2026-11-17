@@ -12,6 +12,7 @@ typedef struct XentExtMeasureReq {
 
 typedef bool (*XentExternalMeasureFn)(void *userdata, XentExtMeasureReq const *request, XentSize *out_size);
 
+/** Borrows `userdata` until `xent_node_clearmeasure` or the node is destroyed. */
 bool         xent_node_setmeasure(XentCtx *ctx, XentNodeId node, XentExternalMeasureFn fn, void *userdata);
 bool         xent_node_clearmeasure(XentCtx *ctx, XentNodeId node);
 bool         xent_node_hasmeasure(XentCtx const *ctx, XentNodeId node);

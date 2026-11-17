@@ -192,9 +192,11 @@ bool                          xent_dl_fillrect(XentDlBuilder *b, XentRect rect, 
 bool                          xent_dl_strokerect(XentDlBuilder *b, XentRect rect, XentColor color, float width);
 bool                          xent_dl_fillrrect(XentDlBuilder *b, XentRect rect, float radius, XentColor color);
 bool xent_dl_strokerrect(XentDlBuilder *b, XentRect rect, float radius, XentColor color, float width);
+/** Copies `utf8`. The caller may free it. */
 bool xent_dl_drawtext(
   XentDlBuilder *b, XentRect bounds, char const *utf8, float font_size, uint16_t font_weight, XentColor color
 );
+/** Copies `utf8`. The caller may free it. */
 bool xent_dl_drawtextstyle(
   XentDlBuilder *b, XentRect bounds, char const *utf8, XentTextStyle const *style, XentColor color
 );
@@ -224,11 +226,13 @@ bool xent_dl_filltri(XentDlBuilder *b, float x0, float y0, float x1, float y1, f
 bool xent_dl_strokerrectgrad(XentDlBuilder *b, XentRect rect, float radius, float width, XentLinearGrad const *grad);
 bool xent_dl_fillrectgrad(XentDlBuilder *b, XentRect rect, XentLinearGrad const *grad);
 
+/** Consumes `b`, including when a clip, transform, or opacity push is still open. */
 XENT_NODISCARD XentDl *xent_dl_end(XentDlBuilder *b);
 void                   xent_dl_free(XentDl *list);
 
 uint32_t               xent_dl_ncmd(XentDl const *list);
 XentDlCmd const       *xent_dl_cmd(XentDl const *list, uint32_t index);
+/** Points into `list` until `xent_dl_free`. */
 char const            *xent_dl_text(XentDl const *list, uint32_t offset, uint32_t len);
 
 static_assert(sizeof(XentStrokeCap) == 4, "XentStrokeCap crosses the ABI as int32");

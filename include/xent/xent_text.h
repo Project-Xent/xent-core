@@ -24,6 +24,7 @@ struct XentTextBackend {
 
 bool xent_text_backendvalid(XentTextBackend const *backend);
 
+/** Copies `text`. NULL is stored as an empty string. The caller may free it. */
 bool xent_settext(XentCtx *ctx, XentNodeId node, char const *text);
 #define XENT_FONT_SIZE_DEFAULT   14.0f
 #define XENT_FONT_WEIGHT_DEFAULT 400u
@@ -32,12 +33,14 @@ bool                   xent_setfontsize(XentCtx *ctx, XentNodeId node, float fon
 bool                   xent_setfontweight(XentCtx *ctx, XentNodeId node, uint16_t weight);
 float                  xent_fontsize(XentCtx const *ctx, XentNodeId node);
 uint16_t               xent_fontweight(XentCtx const *ctx, XentNodeId node);
+/** Copies `family`. NULL or "" clears it. The caller may free it. */
 bool                   xent_setfontfamily(XentCtx *ctx, XentNodeId node, char const *family);
 bool                   xent_setlinebreak(XentCtx *ctx, XentNodeId node, XentLineBreakPolicy policy);
 XentLineBreakPolicy    xent_linebreak(XentCtx const *ctx, XentNodeId node);
 bool                   xent_settexttrim(XentCtx *ctx, XentNodeId node, XentTextTrim trim);
 bool                   xent_setmaxlines(XentCtx *ctx, XentNodeId node, uint32_t max_lines);
 
+/** Copies `runs` and each `font_family`. The caller may free the input. */
 bool                   xent_settextruns(XentCtx *ctx, XentNodeId node, XentTextRun const *runs, uint32_t count);
 
 bool                   xent_text_setbackend(XentCtx *ctx, XentTextBackend const *backend);

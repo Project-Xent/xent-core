@@ -12,6 +12,7 @@ static void copy_layout_style(XentCtx *ctx, uint32_t di, uint32_t si) {
 	XentNodeLayoutStore *L = &ctx->nodes.layout;
 	copy_u8(L->protocol, L->protocol, di, si);
 	copy_u8(L->direction, L->direction, di, si);
+	copy_u8(L->collapsed, L->collapsed, di, si);
 	copy_u8(L->wrap_content_w, L->wrap_content_w, di, si);
 	copy_u8(L->wrap_content_h, L->wrap_content_h, di, si);
 	copy_u8(L->scroller, L->scroller, di, si);

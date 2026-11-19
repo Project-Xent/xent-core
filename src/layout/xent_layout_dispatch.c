@@ -12,9 +12,28 @@ typedef struct XentDirtyPlan {
 	XentLayoutStrategy strategy;
 } XentDirtyPlan;
 
+bool xent_layout_skip_collapsed(XentCtx *ctx, XentNodeId child, float x, float y) {
+	uint32_t i = xent_node_index(child);
+	if (!ctx->nodes.layout.collapsed [i]) return false;
+	ctx->nodes.layout.proposed_w [i] = 0.0f;
+	ctx->nodes.layout.proposed_h [i] = 0.0f;
+	ctx->nodes.layout.decided_w [i]  = 0.0f;
+	ctx->nodes.layout.decided_h [i]  = 0.0f;
+	ctx->nodes.layout.abs_x [i]      = x;
+	ctx->nodes.layout.abs_y [i]      = y;
+	return true;
+}
+
+void xent_layout_zero_collapsed(XentCtx *ctx, XentNodeId parent, float x, float y) {
+	for (XentNodeId child = ctx->nodes.topology.first_child [xent_node_index(parent)]; child != XENT_NODE_INVALID;
+	  child               = ctx->nodes.topology.next_sibling [xent_node_index(child)])
+		( void ) xent_layout_skip_collapsed(ctx, child, x, y);
+}
+
 void xent_layout_dispatch_node(XentLayoutRequest const *request) {
-	XentCtx     *ctx      = request->ctx;
-	XentNodeId   node     = request->node;
+	XentCtx   *ctx  = request->ctx;
+	XentNodeId node = request->node;
+	if (xent_layout_skip_collapsed(ctx, node, request->origin_x, request->origin_y)) return;
 	XentProtocol protocol = ( XentProtocol ) ctx->nodes.layout.protocol [xent_node_index(node)];
 	switch (protocol) {
 	case XENT_PROTOCOL_FLEX       : xent_layout_node_flex(request); break;

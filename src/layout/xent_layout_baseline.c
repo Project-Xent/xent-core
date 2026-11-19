@@ -49,7 +49,15 @@ static bool beyond_first_line(XentCtx const *ctx, RowBaselineScan const *scan, X
 	return scan->used + gap + child_outer_width(ctx, child) > scan->available;
 }
 
+static XentNodeId first_in_flow(XentCtx const *ctx, uint32_t parent) {
+	XentNodeId child = ctx->nodes.topology.first_child [parent];
+	while (child != XENT_NODE_INVALID && ctx->nodes.layout.collapsed [xent_node_index(child)])
+		child = ctx->nodes.topology.next_sibling [xent_node_index(child)];
+	return child;
+}
+
 static bool scan_row_child(XentCtx *ctx, RowBaselineScan *scan, XentNodeId child, float fallback) {
+	if (ctx->nodes.layout.collapsed [xent_node_index(child)]) return true;
 	if (beyond_first_line(ctx, scan, child)) return false;
 	float gap = ctx->nodes.layout.gap [scan->parent];
 	if (gap < 0.0f) gap = 0.0f;
@@ -71,7 +79,7 @@ static float flex_row_baseline(XentCtx *ctx, XentNodeId node, float fallback) {
 	             - ctx->nodes.layout.padding_l [parent]
 	             - ctx->nodes.layout.padding_r [parent],
 	};
-	XentNodeId first = ctx->nodes.topology.first_child [parent];
+	XentNodeId first = first_in_flow(ctx, parent);
 
 	for (XentNodeId child = first; child != XENT_NODE_INVALID;
 	  child               = ctx->nodes.topology.next_sibling [xent_node_index(child)])
@@ -85,7 +93,7 @@ static float flex_row_baseline(XentCtx *ctx, XentNodeId node, float fallback) {
 
 static float flex_column_baseline(XentCtx *ctx, XentNodeId node, float fallback) {
 	uint32_t   parent = xent_node_index(node);
-	XentNodeId first  = ctx->nodes.topology.first_child [parent];
+	XentNodeId first  = first_in_flow(ctx, parent);
 	if (first == XENT_NODE_INVALID) return fallback;
 	return ctx->nodes.layout.padding_t [parent] + child_baseline(ctx, first, fallback);
 }

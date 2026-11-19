@@ -211,6 +211,7 @@ static void grid_resolve_auto_tracks(XentCtx *ctx, XentNodeId container, GridTra
 	for (XentNodeId child = ctx->nodes.topology.first_child [xent_node_index(container)]; child != XENT_NODE_INVALID;
 	  child               = ctx->nodes.topology.next_sibling [xent_node_index(child)])
 	{
+		if (ctx->nodes.layout.collapsed [xent_node_index(child)]) continue;
 		GridAxisPlacement placement = grid_axis_placement(ctx, child, axis, tracks->count);
 		float             need      = grid_child_axis_need(ctx, child, axis, tracks->available);
 		grid_apply_auto_track_need(tracks, placement, need);

@@ -260,21 +260,28 @@ static StackChildData stack_describe_child(XentCtx *ctx, StackLayoutFrame const 
 	return data;
 }
 
+static void stack_add_child(
+  XentCtx *ctx, StackLayoutFrame const *frame, StackBuffers const *buffers, StackCollectStats *stats, XentNodeId child
+) {
+	StackChildData data                     = stack_describe_child(ctx, frame, child);
+	buffers->children [stats->count]        = data;
+	buffers->main_sizes [stats->count]      = data.preferred_main;
+	buffers->priority_order [stats->count]  = stats->count;
+	stats->sum_min                         += data.preferred_main + data.margin_lead + data.margin_trail;
+	if (data.spacer) stats->spacer_count += 1u;
+	if (!data.fixed_main && data.priority > 0.0f) stats->priority_sum += data.priority;
+	stats->count += 1u;
+}
+
 static StackCollectStats
 stack_collect_children(XentCtx *ctx, StackLayoutFrame const *frame, StackBuffers const *buffers, uint32_t child_count) {
 	StackCollectStats stats = {0};
-	XentNodeId        child = ctx->nodes.topology.first_child [xent_node_index(frame->node)];
-	while (child != XENT_NODE_INVALID && stats.count < child_count) {
-		ctx->profile.sibling_scans            += 1u;
-		StackChildData data                    = stack_describe_child(ctx, frame, child);
-		buffers->children [stats.count]        = data;
-		buffers->main_sizes [stats.count]      = data.preferred_main;
-		buffers->priority_order [stats.count]  = stats.count;
-		stats.sum_min                         += data.preferred_main + data.margin_lead + data.margin_trail;
-		if (data.spacer) stats.spacer_count += 1u;
-		if (!data.fixed_main && data.priority > 0.0f) stats.priority_sum += data.priority;
-		child        = ctx->nodes.topology.next_sibling [xent_node_index(child)];
-		stats.count += 1u;
+	for (XentNodeId child = ctx->nodes.topology.first_child [xent_node_index(frame->node)];
+	  child != XENT_NODE_INVALID && stats.count < child_count;
+	  child = ctx->nodes.topology.next_sibling [xent_node_index(child)])
+	{
+		ctx->profile.sibling_scans += 1u;
+		if (!ctx->nodes.layout.collapsed [xent_node_index(child)]) stack_add_child(ctx, frame, buffers, &stats, child);
 	}
 	if (stats.count > 1u) stats.sum_min += frame->gap * ( float ) (stats.count - 1u);
 	return stats;
@@ -577,8 +584,9 @@ void xent_layout_node_swiftstack(XentLayoutRequest const *request) {
 	if (child_count > 0u) {
 		StackBuffers buffers = {0};
 		if (stack_alloc_buffers(ctx, child_count, &buffers)) {
-			double            collect_start_ms  = xent_now_ms();
-			StackCollectStats stats             = stack_collect_children(ctx, &frame, &buffers, child_count);
+			double            collect_start_ms = xent_now_ms();
+			StackCollectStats stats            = stack_collect_children(ctx, &frame, &buffers, child_count);
+			xent_layout_zero_collapsed(ctx, node, frame.content_x, frame.content_y);
 			ctx->profile.swiftstack_collect_ms += (xent_now_ms() - collect_start_ms);
 			stack_distribute_main_sizes(ctx, &frame, &buffers, &stats);
 			stack_layout_children(ctx, &frame, &buffers, stats.count);

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.4 (unreleased)
+
+- added `xent_setcollapsed` / `xent_collapsed`: a collapsed node lays out as
+  0x0, takes no place in its parent's flow (no gap, no grow share, no grid
+  track or baseline contribution), and leaves its subtree unlaid.
+
 ## 0.3.3
 
 - added `XENT_TEXT_TRIM_PATH_ELLIPSIS`: trims the middle of a path, keeping

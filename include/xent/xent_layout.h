@@ -41,6 +41,9 @@ XentStackAlign xent_stack_align(XentCtx const *ctx, XentNodeId node);
 bool           xent_stack_setprio(XentCtx *ctx, XentNodeId node, float priority);
 bool           xent_stack_setspacer(XentCtx *ctx, XentNodeId node, bool is_spacer);
 bool           xent_setdir(XentCtx *ctx, XentNodeId node, XentDirection direction);
+/** A collapsed node lays out as 0x0 at its parent's content origin, takes no place in its parent's flow, and leaves its subtree unlaid. */
+bool           xent_setcollapsed(XentCtx *ctx, XentNodeId node, bool collapsed);
+bool           xent_collapsed(XentCtx const *ctx, XentNodeId node);
 XentDirection  xent_dir(XentCtx const *ctx, XentNodeId node);
 XentDirection  xent_resolved_dir(XentCtx const *ctx, XentNodeId node);
 bool           xent_resolved_m(XentCtx const *ctx, XentNodeId node, XentAxis main_axis, XentResolvedInsets *out_insets);

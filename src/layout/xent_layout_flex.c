@@ -341,8 +341,9 @@ flex_collect_children(XentCtx *ctx, FlexLayoutFrame const *frame, FlexChildData 
 	uint32_t   count = 0u;
 	XentNodeId child = ctx->nodes.topology.first_child [xent_node_index(frame->node)];
 	while (child != XENT_NODE_INVALID && count < child_capacity) {
-		children [count++] = flex_describe_child(ctx, frame, child);
-		child              = ctx->nodes.topology.next_sibling [xent_node_index(child)];
+		if (!ctx->nodes.layout.collapsed [xent_node_index(child)])
+			children [count++] = flex_describe_child(ctx, frame, child);
+		child = ctx->nodes.topology.next_sibling [xent_node_index(child)];
 	}
 	return count;
 }
@@ -941,6 +942,7 @@ void xent_layout_node_flex(XentLayoutRequest const *request) {
 	double   collect_start        = xent_now_ms();
 	uint32_t child_count          = flex_collect_children(ctx, &frame, children, child_capacity);
 	ctx->profile.flex_collect_ms += (xent_now_ms() - collect_start);
+	xent_layout_zero_collapsed(ctx, node, frame.content_x, frame.content_y);
 	if (child_count > 0u) {
 		double   line_start = xent_now_ms();
 		uint32_t line_count = flex_build_lines(&frame, children, child_count, lines);

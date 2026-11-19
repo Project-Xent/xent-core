@@ -101,6 +101,21 @@ bool xent_setdir(XentCtx *ctx, XentNodeId node, XentDirection direction) {
 	return true;
 }
 
+bool xent_setcollapsed(XentCtx *ctx, XentNodeId node, bool collapsed) {
+	if (!xent_node_valid(ctx, node)) return false;
+	uint32_t i = xent_node_index(node);
+	if (ctx->nodes.layout.collapsed [i] == ( uint8_t ) collapsed) return true;
+	ctx->nodes.layout.collapsed [i] = ( uint8_t ) collapsed;
+	xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT | XENT_DIRTY_SUBTREE);
+	XentNodeId parent = ctx->nodes.topology.parent [i];
+	if (parent != XENT_NODE_INVALID) xent_mark_dirty(ctx, parent, XENT_DIRTY_LAYOUT);
+	return true;
+}
+
+bool xent_collapsed(XentCtx const *ctx, XentNodeId node) {
+	return xent_node_valid(ctx, node) && ctx->nodes.layout.collapsed [xent_node_index(node)] != 0u;
+}
+
 XentDirection xent_dir(XentCtx const *ctx, XentNodeId node) {
 	if (!xent_node_valid(ctx, node)) return XENT_DIRECTION_INHERIT;
 	return ( XentDirection ) ctx->nodes.layout.direction [xent_node_index(node)];

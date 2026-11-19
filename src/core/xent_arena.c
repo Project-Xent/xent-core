@@ -23,6 +23,7 @@ static XentGrowField const XENT_NODE_GROW_FIELDS [] = {
 
   XENT_NODE_GROW_FIELD(layout.protocol),
   XENT_NODE_GROW_FIELD(layout.direction),
+  XENT_NODE_GROW_FIELD(layout.collapsed),
   XENT_NODE_GROW_FIELD(layout.wrap_content_w),
   XENT_NODE_GROW_FIELD(layout.wrap_content_h),
   XENT_NODE_GROW_FIELD(layout.scroller),
@@ -190,6 +191,7 @@ static void init_layout_defaults(XentNodeStore *nodes, uint32_t i) {
 	nodes->layout.max_h [i]           = INFINITY;
 	nodes->layout.protocol [i]        = ( uint8_t ) XENT_PROTOCOL_ABSOLUTE;
 	nodes->layout.direction [i]       = ( uint8_t ) XENT_DIRECTION_INHERIT;
+	nodes->layout.collapsed [i]       = 0u;
 	nodes->layout.wrap_content_w [i]  = 0u;
 	nodes->layout.wrap_content_h [i]  = 0u;
 	nodes->layout.scroller [i]        = 0u;

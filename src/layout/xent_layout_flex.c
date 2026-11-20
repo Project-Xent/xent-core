@@ -41,8 +41,6 @@ typedef struct FlexLayoutFrame {
 	XentNodeId node;
 	bool       row;
 	bool       wrap_enabled;
-	bool       rtl_main;
-	bool       rtl_cross;
 	float      content_x;
 	float      content_y;
 	float      content_w;
@@ -227,14 +225,11 @@ static void flex_begin_layout(XentLayoutRequest const *request, FlexLayoutFrame 
 	ctx->nodes.layout.abs_y [xent_node_index(node)] = origin_y + ctx->nodes.layout.abs_pos_y [xent_node_index(node)];
 	xent_quantize_node_layout(ctx, node);
 
-	width                   = ctx->nodes.layout.decided_w [xent_node_index(node)];
-	height                  = ctx->nodes.layout.decided_h [xent_node_index(node)];
-	frame->node             = node;
-	frame->row              = ctx->nodes.flex.direction [xent_node_index(node)] == ( uint8_t ) XENT_FLEX_ROW;
-	frame->wrap_enabled     = ctx->nodes.flex.wrap [xent_node_index(node)] == ( uint8_t ) XENT_FLEX_WRAP;
-	XentDirection direction = xent_resolved_dir(ctx, node);
-	frame->rtl_main         = frame->row && direction == XENT_DIRECTION_RTL;
-	frame->rtl_cross        = !frame->row && direction == XENT_DIRECTION_RTL;
+	width               = ctx->nodes.layout.decided_w [xent_node_index(node)];
+	height              = ctx->nodes.layout.decided_h [xent_node_index(node)];
+	frame->node         = node;
+	frame->row          = ctx->nodes.flex.direction [xent_node_index(node)] == ( uint8_t ) XENT_FLEX_ROW;
+	frame->wrap_enabled = ctx->nodes.flex.wrap [xent_node_index(node)] == ( uint8_t ) XENT_FLEX_WRAP;
 	frame->content_x
 	  = ctx->nodes.layout.abs_x [xent_node_index(node)] + ctx->nodes.layout.padding_l [xent_node_index(node)];
 	frame->content_y
@@ -269,26 +264,22 @@ flex_alloc_buffers(XentCtx *ctx, uint32_t child_count, FlexChildData **out_child
 
 static float flex_main_margin_lead(XentCtx const *ctx, FlexLayoutFrame const *frame, XentNodeId child) {
 	if (!frame->row) return ctx->nodes.layout.margin_t [xent_node_index(child)];
-	return frame->rtl_main ? ctx->nodes.layout.margin_r [xent_node_index(child)]
-	                       : ctx->nodes.layout.margin_l [xent_node_index(child)];
+	return ctx->nodes.layout.margin_l [xent_node_index(child)];
 }
 
 static float flex_main_margin_trail(XentCtx const *ctx, FlexLayoutFrame const *frame, XentNodeId child) {
 	if (!frame->row) return ctx->nodes.layout.margin_b [xent_node_index(child)];
-	return frame->rtl_main ? ctx->nodes.layout.margin_l [xent_node_index(child)]
-	                       : ctx->nodes.layout.margin_r [xent_node_index(child)];
+	return ctx->nodes.layout.margin_r [xent_node_index(child)];
 }
 
 static float flex_cross_margin_lead(XentCtx const *ctx, FlexLayoutFrame const *frame, XentNodeId child) {
 	if (frame->row) return ctx->nodes.layout.margin_t [xent_node_index(child)];
-	return frame->rtl_cross ? ctx->nodes.layout.margin_r [xent_node_index(child)]
-	                        : ctx->nodes.layout.margin_l [xent_node_index(child)];
+	return ctx->nodes.layout.margin_l [xent_node_index(child)];
 }
 
 static float flex_cross_margin_trail(XentCtx const *ctx, FlexLayoutFrame const *frame, XentNodeId child) {
 	if (frame->row) return ctx->nodes.layout.margin_b [xent_node_index(child)];
-	return frame->rtl_cross ? ctx->nodes.layout.margin_l [xent_node_index(child)]
-	                        : ctx->nodes.layout.margin_r [xent_node_index(child)];
+	return ctx->nodes.layout.margin_r [xent_node_index(child)];
 }
 
 static float flex_base_main(XentCtx *ctx, FlexLayoutFrame const *frame, XentNodeId child) {
@@ -701,12 +692,9 @@ static void flex_child_size(FlexLayoutFrame const *frame, FlexChildData const *e
 	if (*out_h < 0.0f) *out_h = 0.0f;
 }
 
-static float flex_child_origin_x(
-  FlexLayoutFrame const *frame, float main_cursor, float cross_cursor, float cross_offset, float child_w
-) {
-	if (frame->row && frame->rtl_main) return frame->content_x + (frame->content_w - main_cursor - child_w);
+static float
+flex_child_origin_x(FlexLayoutFrame const *frame, float main_cursor, float cross_cursor, float cross_offset) {
 	if (frame->row) return frame->content_x + main_cursor;
-	if (frame->rtl_cross) return frame->content_x + (frame->content_w - cross_cursor - cross_offset - child_w);
 	return frame->content_x + cross_cursor + cross_offset;
 }
 
@@ -732,7 +720,7 @@ static void flex_layout_line_children(FlexLayoutChildrenRequest const *request) 
 		float child_h         = 0.0f;
 		flex_child_size(frame, entry, &child_w, &child_h);
 
-		float child_origin_x = flex_child_origin_x(frame, main_cursor, cross_cursor, cross_offset, child_w);
+		float child_origin_x = flex_child_origin_x(frame, main_cursor, cross_cursor, cross_offset);
 		float child_origin_y = flex_child_origin_y(frame, main_cursor, cross_cursor, cross_offset);
 		xent_layout_dispatch_node(&(XentLayoutRequest) {
 		  ctx, entry->id, child_w, child_h, child_origin_x, child_origin_y, true, true});

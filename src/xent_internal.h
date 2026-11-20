@@ -300,6 +300,7 @@ void xent_layout_dispatch_node(XentLayoutRequest const *request);
 bool xent_layout_skip_collapsed(XentCtx *ctx, XentNodeId child, float x, float y);
 void xent_layout_zero_collapsed(XentCtx *ctx, XentNodeId parent, float x, float y);
 void xent_layout_node_absolute(XentLayoutRequest const *request);
+void xent_layout_mirror(XentCtx *ctx, XentNodeId const *roots, uint32_t root_count);
 
 void xent_layout_node_swiftstack(XentLayoutRequest const *request);
 

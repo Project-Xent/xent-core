@@ -64,8 +64,11 @@ typedef enum XentDlOp
 	XENT_DL_FILLRECT_GRAD,
 } XentDlOp;
 
-#define XENT_DL_TEXT_WRAP 0x01u
-#define XENT_DL_TEXT_ICON 0x02u
+#define XENT_DL_TEXT_WRAP       0x01u
+#define XENT_DL_TEXT_ICON       0x02u
+#define XENT_DL_TEXT_RTL        0x04u
+#define XENT_DL_TEXT_MIRRORABLE 0x08u
+#define XENT_DL_TEXT_FLIP       0x10u
 
 typedef struct XentTextStyle {
 	float        font_size;
@@ -234,6 +237,8 @@ uint32_t               xent_dl_ncmd(XentDl const *list);
 XentDlCmd const       *xent_dl_cmd(XentDl const *list, uint32_t index);
 /** Points into `list` until `xent_dl_free`. */
 char const            *xent_dl_text(XentDl const *list, uint32_t offset, uint32_t len);
+/** Mirrors `list` inside [0, width]. Text, images and shapes move but keep their pixels; text gains `XENT_DL_TEXT_RTL`, and `XENT_DL_TEXT_MIRRORABLE` text gains `XENT_DL_TEXT_FLIP`, which draws its glyphs flipped about the bounds' centre. */
+void                   xent_dl_mirror(XentDl *list, float width);
 
 static_assert(sizeof(XentStrokeCap) == 4, "XentStrokeCap crosses the ABI as int32");
 static_assert(sizeof(XentDlOp) == 4, "XentDlOp crosses the ABI as int32");

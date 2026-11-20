@@ -320,6 +320,8 @@ bool xent_layout(XentCtx *ctx, XentNodeId root, float available_width, float ava
 
 	if (!prepare_layout_work_order(ctx, root, &inputs, strategy, &dirty_plan)) return false;
 	run_selected_layout(ctx, &inputs, strategy, &dirty_plan);
+	if (strategy == XENT_LAYOUT_STRATEGY_FULL) xent_layout_mirror(ctx, &root, 1u);
+	if (strategy == XENT_LAYOUT_STRATEGY_DIRTY) xent_layout_mirror(ctx, dirty_plan.roots, dirty_plan.root_count);
 
 	if (ctx->work_count > 0u) xent_batch_quantize_layout(ctx);
 	if (ctx->work_count > 0u) xent_dirty_clear_order(ctx);

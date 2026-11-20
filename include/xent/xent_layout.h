@@ -40,6 +40,7 @@ bool           xent_stack_setalign(XentCtx *ctx, XentNodeId node, XentStackAlign
 XentStackAlign xent_stack_align(XentCtx const *ctx, XentNodeId node);
 bool           xent_stack_setprio(XentCtx *ctx, XentNodeId node, float priority);
 bool           xent_stack_setspacer(XentCtx *ctx, XentNodeId node, bool is_spacer);
+/** RTL lays the subtree out as LTR, then mirrors each child inside its parent's border box. Margins, padding and positions mirror with it. */
 bool           xent_setdir(XentCtx *ctx, XentNodeId node, XentDirection direction);
 /** A collapsed node lays out as 0x0 at its parent's content origin, takes no place in its parent's flow, and leaves its subtree unlaid. */
 bool           xent_setcollapsed(XentCtx *ctx, XentNodeId node, bool collapsed);

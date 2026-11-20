@@ -461,3 +461,81 @@ char const *xent_dl_text(XentDl const *list, uint32_t offset, uint32_t len) {
 	if (offset > list->strings_len || len > list->strings_len - offset) return NULL;
 	return list->strings + offset;
 }
+
+typedef void (*XentDlMirrorFn)(XentDlCmd *cmd, float width);
+
+static void  mirror_rect(XentRect *r, float width) { r->x = width - r->x - r->w; }
+
+static float mirror_x(float x, float width) { return width - x; }
+
+static void  mirror_geom(XentDlCmd *cmd, float width) { mirror_rect(&cmd->u.geom.rect, width); }
+
+static void  mirror_text(XentDlCmd *cmd, float width) {
+	mirror_rect(&cmd->u.text.bounds, width);
+	cmd->u.text.flags |= XENT_DL_TEXT_RTL;
+	if (cmd->u.text.flags & XENT_DL_TEXT_MIRRORABLE) cmd->u.text.flags |= XENT_DL_TEXT_FLIP;
+}
+
+static void mirror_image(XentDlCmd *cmd, float width) { mirror_rect(&cmd->u.image.bounds, width); }
+
+static void mirror_ellipse(XentDlCmd *cmd, float width) { mirror_rect(&cmd->u.ellipse.bounds, width); }
+
+static void mirror_shape(XentDlCmd *cmd, float width) { mirror_rect(&cmd->u.shape.bounds, width); }
+
+static void mirror_arc(XentDlCmd *cmd, float width) {
+	mirror_rect(&cmd->u.arc.bounds, width);
+	cmd->u.arc.start_deg = 180.0f - cmd->u.arc.start_deg;
+	cmd->u.arc.sweep_deg = -cmd->u.arc.sweep_deg;
+}
+
+static void mirror_line(XentDlCmd *cmd, float width) {
+	cmd->u.line.x0 = mirror_x(cmd->u.line.x0, width);
+	cmd->u.line.x1 = mirror_x(cmd->u.line.x1, width);
+}
+
+static void mirror_tri(XentDlCmd *cmd, float width) {
+	cmd->u.tri.x0 = mirror_x(cmd->u.tri.x0, width);
+	cmd->u.tri.x1 = mirror_x(cmd->u.tri.x1, width);
+	cmd->u.tri.x2 = mirror_x(cmd->u.tri.x2, width);
+}
+
+static void mirror_linear(XentDlCmd *cmd, float width) {
+	mirror_rect(&cmd->u.linear.rect, width);
+	cmd->u.linear.x0 = mirror_x(cmd->u.linear.x0, width);
+	cmd->u.linear.x1 = mirror_x(cmd->u.linear.x1, width);
+}
+
+static void mirror_transform(XentDlCmd *cmd, float width) {
+	XentAffine2 m = cmd->u.transform.m;
+	cmd->u.transform.m
+	  = (XentAffine2) {m.m00, -m.m01, width - m.m02 - width * m.m00, -m.m10, m.m11, m.m12 + width * m.m10};
+}
+
+static XentDlMirrorFn const k_mirror [] = {
+  [XENT_DL_FILLRECT]         = mirror_geom,
+  [XENT_DL_STROKERECT]       = mirror_geom,
+  [XENT_DL_FILLRRECT]        = mirror_geom,
+  [XENT_DL_STROKERRECT]      = mirror_geom,
+  [XENT_DL_DRAWTEXT]         = mirror_text,
+  [XENT_DL_DRAWIMG]          = mirror_image,
+  [XENT_DL_PUSHCLIP_RECT]    = mirror_geom,
+  [XENT_DL_PUSHTRANSFORM]    = mirror_transform,
+  [XENT_DL_FILLELLIPSE]      = mirror_ellipse,
+  [XENT_DL_STROKEELLIPSE]    = mirror_ellipse,
+  [XENT_DL_STROKEARC]        = mirror_arc,
+  [XENT_DL_STROKELINE]       = mirror_line,
+  [XENT_DL_PUSHCLIP_ELLIPSE] = mirror_ellipse,
+  [XENT_DL_PUSHCLIP_RRECT]   = mirror_geom,
+  [XENT_DL_FILLSHAPE]        = mirror_shape,
+  [XENT_DL_FILLTRI]          = mirror_tri,
+  [XENT_DL_STROKERRECT_GRAD] = mirror_linear,
+  [XENT_DL_FILLRECT_GRAD]    = mirror_linear,
+};
+
+void xent_dl_mirror(XentDl *list, float width) {
+	if (!list) return;
+	for (uint32_t i = 0; i < list->count; ++i) {
+		uint16_t op = list->cmds [i].op;
+		if (op < sizeof(k_mirror) / sizeof(k_mirror [0]) && k_mirror [op]) k_mirror [op](&list->cmds [i], width);
+	}
+}

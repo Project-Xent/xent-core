@@ -301,78 +301,6 @@ static int test_0004_absolute_layout_align_items_center_on_child_only(void) {
 	return 0;
 }
 
-static int test_0006_absolute_layout_padding_left(void) {
-	yt_reset_state();
-	XentCtx *ctx = xent_ctx_create(NULL);
-	YT_ASSERT(ctx != NULL);
-	XentNodeId root = yt_create_node(ctx);
-	yt_set_width(ctx, root, 200.0f);
-	yt_set_height(ctx, root, 200.0f);
-	yt_set_padding(ctx, root, YT_EDGE_LEFT, 100.0f);
-	XentNodeId root_child0 = yt_create_node(ctx);
-	yt_set_width(ctx, root_child0, 50.0f);
-	yt_set_height(ctx, root_child0, 50.0f);
-	xent_node_append(ctx, root, root_child0);
-	xent_setdir(ctx, root, XENT_DIRECTION_LTR);
-	YT_ASSERT(xent_layout(ctx, root, NAN, NAN));
-	YT_ASSERT_RECT(root, x, 0.0f);
-	YT_ASSERT_RECT(root, y, 0.0f);
-	YT_ASSERT_RECT(root, w, 200.0f);
-	YT_ASSERT_RECT(root, h, 200.0f);
-	YT_ASSERT_RECT(root_child0, x, 100.0f);
-	YT_ASSERT_RECT(root_child0, y, 0.0f);
-	YT_ASSERT_RECT(root_child0, w, 50.0f);
-	YT_ASSERT_RECT(root_child0, h, 50.0f);
-	xent_setdir(ctx, root, XENT_DIRECTION_RTL);
-	YT_ASSERT(xent_layout(ctx, root, NAN, NAN));
-	YT_ASSERT_RECT(root, x, 0.0f);
-	YT_ASSERT_RECT(root, y, 0.0f);
-	YT_ASSERT_RECT(root, w, 200.0f);
-	YT_ASSERT_RECT(root, h, 200.0f);
-	YT_ASSERT_RECT(root_child0, x, 150.0f);
-	YT_ASSERT_RECT(root_child0, y, 0.0f);
-	YT_ASSERT_RECT(root_child0, w, 50.0f);
-	YT_ASSERT_RECT(root_child0, h, 50.0f);
-	xent_ctx_destroy(ctx);
-	return 0;
-}
-
-static int test_0007_absolute_layout_padding_right(void) {
-	yt_reset_state();
-	XentCtx *ctx = xent_ctx_create(NULL);
-	YT_ASSERT(ctx != NULL);
-	XentNodeId root = yt_create_node(ctx);
-	yt_set_width(ctx, root, 200.0f);
-	yt_set_height(ctx, root, 200.0f);
-	yt_set_padding(ctx, root, YT_EDGE_RIGHT, 100.0f);
-	XentNodeId root_child0 = yt_create_node(ctx);
-	yt_set_width(ctx, root_child0, 50.0f);
-	yt_set_height(ctx, root_child0, 50.0f);
-	xent_node_append(ctx, root, root_child0);
-	xent_setdir(ctx, root, XENT_DIRECTION_LTR);
-	YT_ASSERT(xent_layout(ctx, root, NAN, NAN));
-	YT_ASSERT_RECT(root, x, 0.0f);
-	YT_ASSERT_RECT(root, y, 0.0f);
-	YT_ASSERT_RECT(root, w, 200.0f);
-	YT_ASSERT_RECT(root, h, 200.0f);
-	YT_ASSERT_RECT(root_child0, x, 0.0f);
-	YT_ASSERT_RECT(root_child0, y, 0.0f);
-	YT_ASSERT_RECT(root_child0, w, 50.0f);
-	YT_ASSERT_RECT(root_child0, h, 50.0f);
-	xent_setdir(ctx, root, XENT_DIRECTION_RTL);
-	YT_ASSERT(xent_layout(ctx, root, NAN, NAN));
-	YT_ASSERT_RECT(root, x, 0.0f);
-	YT_ASSERT_RECT(root, y, 0.0f);
-	YT_ASSERT_RECT(root, w, 200.0f);
-	YT_ASSERT_RECT(root, h, 200.0f);
-	YT_ASSERT_RECT(root_child0, x, 50.0f);
-	YT_ASSERT_RECT(root_child0, y, 0.0f);
-	YT_ASSERT_RECT(root_child0, w, 50.0f);
-	YT_ASSERT_RECT(root_child0, h, 50.0f);
-	xent_ctx_destroy(ctx);
-	return 0;
-}
-
 static int test_0008_absolute_layout_padding_top(void) {
 	yt_reset_state();
 	XentCtx *ctx = xent_ctx_create(NULL);
@@ -2078,107 +2006,6 @@ static int test_0063_align_baseline_column(void) {
 	return 0;
 }
 
-static int test_0077_align_flex_end_with_row_reverse(void) {
-	yt_reset_state();
-	XentCtx *ctx = xent_ctx_create(NULL);
-	YT_ASSERT(ctx != NULL);
-	XentNodeId root = yt_create_node(ctx);
-	yt_set_width(ctx, root, 100.0f);
-	yt_set_height(ctx, root, 75.0f);
-	xent_setitems(ctx, root, XENT_FLEX_ALIGN_END);
-	xent_setflexwrap(ctx, root, XENT_FLEX_WRAP);
-	XentNodeId root_child0 = yt_create_node(ctx);
-	yt_set_width(ctx, root_child0, 50.0f);
-	yt_set_height(ctx, root_child0, 50.0f);
-	yt_set_margin(ctx, root_child0, YT_EDGE_RIGHT, 5.0f);
-	yt_set_margin(ctx, root_child0, YT_EDGE_LEFT, 3.0f);
-	xent_node_append(ctx, root, root_child0);
-	XentNodeId root_child1 = yt_create_node(ctx);
-	yt_set_width(ctx, root_child1, 50.0f);
-	yt_set_height(ctx, root_child1, 50.0f);
-	xent_node_append(ctx, root, root_child1);
-	xent_setdir(ctx, root, XENT_DIRECTION_LTR);
-	YT_ASSERT(xent_layout(ctx, root, NAN, NAN));
-	YT_ASSERT_RECT(root, x, 0.0f);
-	YT_ASSERT_RECT(root, y, 0.0f);
-	YT_ASSERT_RECT(root, w, 100.0f);
-	YT_ASSERT_RECT(root, h, 75.0f);
-	YT_ASSERT_RECT(root_child0, x, 3.0f);
-	YT_ASSERT_RECT(root_child0, y, 0.0f);
-	YT_ASSERT_RECT(root_child0, w, 50.0f);
-	YT_ASSERT_RECT(root_child0, h, 50.0f);
-	YT_ASSERT_RECT(root_child1, x, 58.0f);
-	YT_ASSERT_RECT(root_child1, y, 0.0f);
-	YT_ASSERT_RECT(root_child1, w, 50.0f);
-	YT_ASSERT_RECT(root_child1, h, 50.0f);
-	xent_setdir(ctx, root, XENT_DIRECTION_RTL);
-	YT_ASSERT(xent_layout(ctx, root, NAN, NAN));
-	YT_ASSERT_RECT(root, x, 0.0f);
-	YT_ASSERT_RECT(root, y, 0.0f);
-	YT_ASSERT_RECT(root, w, 100.0f);
-	YT_ASSERT_RECT(root, h, 75.0f);
-	YT_ASSERT_RECT(root_child0, x, 45.0f);
-	YT_ASSERT_RECT(root_child0, y, 0.0f);
-	YT_ASSERT_RECT(root_child0, w, 50.0f);
-	YT_ASSERT_RECT(root_child0, h, 50.0f);
-	YT_ASSERT_RECT(root_child1, x, -8.0f);
-	YT_ASSERT_RECT(root_child1, y, 0.0f);
-	YT_ASSERT_RECT(root_child1, w, 50.0f);
-	YT_ASSERT_RECT(root_child1, h, 50.0f);
-	xent_ctx_destroy(ctx);
-	return 0;
-}
-
-static int test_0078_align_stretch_with_row_reverse(void) {
-	yt_reset_state();
-	XentCtx *ctx = xent_ctx_create(NULL);
-	YT_ASSERT(ctx != NULL);
-	XentNodeId root = yt_create_node(ctx);
-	yt_set_width(ctx, root, 100.0f);
-	yt_set_height(ctx, root, 75.0f);
-	xent_setflexwrap(ctx, root, XENT_FLEX_WRAP);
-	XentNodeId root_child0 = yt_create_node(ctx);
-	yt_set_width(ctx, root_child0, 50.0f);
-	yt_set_height(ctx, root_child0, 50.0f);
-	yt_set_margin(ctx, root_child0, YT_EDGE_RIGHT, 5.0f);
-	yt_set_margin(ctx, root_child0, YT_EDGE_LEFT, 3.0f);
-	xent_node_append(ctx, root, root_child0);
-	XentNodeId root_child1 = yt_create_node(ctx);
-	yt_set_width(ctx, root_child1, 50.0f);
-	yt_set_height(ctx, root_child1, 50.0f);
-	xent_node_append(ctx, root, root_child1);
-	xent_setdir(ctx, root, XENT_DIRECTION_LTR);
-	YT_ASSERT(xent_layout(ctx, root, NAN, NAN));
-	YT_ASSERT_RECT(root, x, 0.0f);
-	YT_ASSERT_RECT(root, y, 0.0f);
-	YT_ASSERT_RECT(root, w, 100.0f);
-	YT_ASSERT_RECT(root, h, 75.0f);
-	YT_ASSERT_RECT(root_child0, x, 3.0f);
-	YT_ASSERT_RECT(root_child0, y, 0.0f);
-	YT_ASSERT_RECT(root_child0, w, 50.0f);
-	YT_ASSERT_RECT(root_child0, h, 50.0f);
-	YT_ASSERT_RECT(root_child1, x, 58.0f);
-	YT_ASSERT_RECT(root_child1, y, 0.0f);
-	YT_ASSERT_RECT(root_child1, w, 50.0f);
-	YT_ASSERT_RECT(root_child1, h, 50.0f);
-	xent_setdir(ctx, root, XENT_DIRECTION_RTL);
-	YT_ASSERT(xent_layout(ctx, root, NAN, NAN));
-	YT_ASSERT_RECT(root, x, 0.0f);
-	YT_ASSERT_RECT(root, y, 0.0f);
-	YT_ASSERT_RECT(root, w, 100.0f);
-	YT_ASSERT_RECT(root, h, 75.0f);
-	YT_ASSERT_RECT(root_child0, x, 45.0f);
-	YT_ASSERT_RECT(root_child0, y, 0.0f);
-	YT_ASSERT_RECT(root_child0, w, 50.0f);
-	YT_ASSERT_RECT(root_child0, h, 50.0f);
-	YT_ASSERT_RECT(root_child1, x, -8.0f);
-	YT_ASSERT_RECT(root_child1, y, 0.0f);
-	YT_ASSERT_RECT(root_child1, w, 50.0f);
-	YT_ASSERT_RECT(root_child1, h, 50.0f);
-	xent_ctx_destroy(ctx);
-	return 0;
-}
-
 static int test_0080_align_self_center(void) {
 	yt_reset_state();
 	XentCtx *ctx = xent_ctx_create(NULL);
@@ -3418,43 +3245,6 @@ static int test_0154_margin_should_not_be_part_of_max_height(void) {
 	return 0;
 }
 
-static int test_0155_margin_should_not_be_part_of_max_width(void) {
-	yt_reset_state();
-	XentCtx *ctx = xent_ctx_create(NULL);
-	YT_ASSERT(ctx != NULL);
-	XentNodeId root = yt_create_node(ctx);
-	yt_set_width(ctx, root, 250.0f);
-	yt_set_height(ctx, root, 250.0f);
-	XentNodeId root_child0 = yt_create_node(ctx);
-	yt_set_width(ctx, root_child0, 100.0f);
-	yt_set_height(ctx, root_child0, 100.0f);
-	yt_set_max_width(ctx, root_child0, 100.0f);
-	yt_set_margin(ctx, root_child0, YT_EDGE_LEFT, 20.0f);
-	xent_node_append(ctx, root, root_child0);
-	xent_setdir(ctx, root, XENT_DIRECTION_LTR);
-	YT_ASSERT(xent_layout(ctx, root, NAN, NAN));
-	YT_ASSERT_RECT(root, x, 0.0f);
-	YT_ASSERT_RECT(root, y, 0.0f);
-	YT_ASSERT_RECT(root, w, 250.0f);
-	YT_ASSERT_RECT(root, h, 250.0f);
-	YT_ASSERT_RECT(root_child0, x, 20.0f);
-	YT_ASSERT_RECT(root_child0, y, 0.0f);
-	YT_ASSERT_RECT(root_child0, w, 100.0f);
-	YT_ASSERT_RECT(root_child0, h, 100.0f);
-	xent_setdir(ctx, root, XENT_DIRECTION_RTL);
-	YT_ASSERT(xent_layout(ctx, root, NAN, NAN));
-	YT_ASSERT_RECT(root, x, 0.0f);
-	YT_ASSERT_RECT(root, y, 0.0f);
-	YT_ASSERT_RECT(root, w, 250.0f);
-	YT_ASSERT_RECT(root, h, 250.0f);
-	YT_ASSERT_RECT(root_child0, x, 150.0f);
-	YT_ASSERT_RECT(root_child0, y, 0.0f);
-	YT_ASSERT_RECT(root_child0, w, 100.0f);
-	YT_ASSERT_RECT(root_child0, h, 100.0f);
-	xent_ctx_destroy(ctx);
-	return 0;
-}
-
 static int test_0156_max_width(void) {
 	yt_reset_state();
 	XentCtx *ctx = xent_ctx_create(NULL);
@@ -3935,8 +3725,6 @@ static YtTestFn const yt_tests [] = {
   test_0002_absolute_layout_justify_content_center,
   test_0003_absolute_layout_align_items_center,
   test_0004_absolute_layout_align_items_center_on_child_only,
-  test_0006_absolute_layout_padding_left,
-  test_0007_absolute_layout_padding_right,
   test_0008_absolute_layout_padding_top,
   test_0009_absolute_layout_padding_bottom,
   test_0010_align_content_flex_start_nowrap,
@@ -3968,8 +3756,6 @@ static YtTestFn const yt_tests [] = {
   test_0056_align_items_flex_end,
   test_0057_align_baseline,
   test_0063_align_baseline_column,
-  test_0077_align_flex_end_with_row_reverse,
-  test_0078_align_stretch_with_row_reverse,
   test_0080_align_self_center,
   test_0081_align_self_flex_end,
   test_0082_align_self_flex_start,
@@ -3996,7 +3782,6 @@ static YtTestFn const yt_tests [] = {
   test_0151_margin_and_flex_column,
   test_0153_margin_with_sibling_column,
   test_0154_margin_should_not_be_part_of_max_height,
-  test_0155_margin_should_not_be_part_of_max_width,
   test_0156_max_width,
   test_0157_max_height,
   test_0158_justify_content_min_max,
@@ -4021,6 +3806,6 @@ int main(void) {
 			return 1;
 		}
 	}
-	printf("xent yoga generated: %u passed, 0 failed, 509 skipped\n", count);
+	printf("xent yoga generated: %u passed, 0 failed, 514 skipped\n", count);
 	return 0;
 }

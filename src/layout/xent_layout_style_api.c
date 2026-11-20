@@ -15,22 +15,10 @@ static XentDirection resolve_direction_internal(XentCtx const *ctx, XentNodeId n
 	return XENT_DIRECTION_LTR;
 }
 
-static XentResolvedInsets resolve_logical_insets(XentInsets insets, XentDirection direction, XentAxis main_axis) {
-	if (main_axis == XENT_AXIS_HORIZONTAL) {
-		return (XentResolvedInsets) {
-		  (direction == XENT_DIRECTION_RTL) ? insets.right : insets.left,
-		  (direction == XENT_DIRECTION_RTL) ? insets.left : insets.right,
-		  insets.top,
-		  insets.bottom,
-		};
-	}
-
-	return (XentResolvedInsets) {
-	  insets.top,
-	  insets.bottom,
-	  (direction == XENT_DIRECTION_RTL) ? insets.right : insets.left,
-	  (direction == XENT_DIRECTION_RTL) ? insets.left : insets.right,
-	};
+static XentResolvedInsets resolve_logical_insets(XentInsets insets, XentAxis main_axis) {
+	if (main_axis == XENT_AXIS_HORIZONTAL)
+		return (XentResolvedInsets) {insets.left, insets.right, insets.top, insets.bottom};
+	return (XentResolvedInsets) {insets.top, insets.bottom, insets.left, insets.right};
 }
 
 static XentInsets layout_insets(float left, float top, float right, float bottom) {
@@ -41,7 +29,7 @@ static bool get_resolved_layout_insets(
   XentCtx const *ctx, XentNodeId node, XentAxis main_axis, XentInsets insets, XentResolvedInsets *out_insets
 ) {
 	if (!xent_node_valid(ctx, node) || !out_insets) return false;
-	*out_insets = resolve_logical_insets(insets, resolve_direction_internal(ctx, node), main_axis);
+	*out_insets = resolve_logical_insets(insets, main_axis);
 	return true;
 }
 

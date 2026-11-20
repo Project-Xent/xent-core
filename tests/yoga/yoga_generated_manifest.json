@@ -1,6 +1,6 @@
 {
-  "converted": 81,
-  "skipped": 509,
+  "converted": 76,
+  "skipped": 514,
   "converted_cases": [
     {
       "source": "generated/YGAbsolutePositionTest.cpp",
@@ -26,16 +26,6 @@
       "source": "generated/YGAbsolutePositionTest.cpp",
       "test": "absolute_layout_align_items_center_on_child_only",
       "function": "test_0004_absolute_layout_align_items_center_on_child_only"
-    },
-    {
-      "source": "generated/YGAbsolutePositionTest.cpp",
-      "test": "absolute_layout_padding_left",
-      "function": "test_0006_absolute_layout_padding_left"
-    },
-    {
-      "source": "generated/YGAbsolutePositionTest.cpp",
-      "test": "absolute_layout_padding_right",
-      "function": "test_0007_absolute_layout_padding_right"
     },
     {
       "source": "generated/YGAbsolutePositionTest.cpp",
@@ -193,16 +183,6 @@
       "function": "test_0063_align_baseline_column"
     },
     {
-      "source": "generated/YGAlignItemsTest.cpp",
-      "test": "align_flex_end_with_row_reverse",
-      "function": "test_0077_align_flex_end_with_row_reverse"
-    },
-    {
-      "source": "generated/YGAlignItemsTest.cpp",
-      "test": "align_stretch_with_row_reverse",
-      "function": "test_0078_align_stretch_with_row_reverse"
-    },
-    {
       "source": "generated/YGAlignSelfTest.cpp",
       "test": "align_self_center",
       "function": "test_0080_align_self_center"
@@ -333,11 +313,6 @@
       "function": "test_0154_margin_should_not_be_part_of_max_height"
     },
     {
-      "source": "generated/YGMarginTest.cpp",
-      "test": "margin_should_not_be_part_of_max_width",
-      "function": "test_0155_margin_should_not_be_part_of_max_width"
-    },
-    {
       "source": "generated/YGMinMaxDimensionTest.cpp",
       "test": "max_width",
       "function": "test_0156_max_width"
@@ -409,6 +384,36 @@
     }
   ],
   "skipped_cases": [
+    {
+      "source": "generated/YGAbsolutePositionTest.cpp",
+      "test": "absolute_layout_padding_left",
+      "function": "test_0006_absolute_layout_padding_left",
+      "reason": "non-css: RTL mirrors left/right margin and padding"
+    },
+    {
+      "source": "generated/YGAbsolutePositionTest.cpp",
+      "test": "absolute_layout_padding_right",
+      "function": "test_0007_absolute_layout_padding_right",
+      "reason": "non-css: RTL mirrors left/right margin and padding"
+    },
+    {
+      "source": "generated/YGAlignItemsTest.cpp",
+      "test": "align_flex_end_with_row_reverse",
+      "function": "test_0077_align_flex_end_with_row_reverse",
+      "reason": "non-css: RTL mirrors left/right margin and padding"
+    },
+    {
+      "source": "generated/YGAlignItemsTest.cpp",
+      "test": "align_stretch_with_row_reverse",
+      "function": "test_0078_align_stretch_with_row_reverse",
+      "reason": "non-css: RTL mirrors left/right margin and padding"
+    },
+    {
+      "source": "generated/YGMarginTest.cpp",
+      "test": "margin_should_not_be_part_of_max_width",
+      "function": "test_0155_margin_should_not_be_part_of_max_width",
+      "reason": "non-css: RTL mirrors left/right margin and padding"
+    },
     {
       "source": "generated/YGSizeOverflowTest.cpp",
       "test": "nested_overflowing_child_in_constraint_parent",

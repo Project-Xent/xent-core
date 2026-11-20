@@ -58,6 +58,8 @@ local exclude = {
     = "yoga shrink:0 (CSS auto-min=0 for empty explicit item)",
   flex_wrap_align_stretch_fits_one_row
     = "yoga single-line align-content (CSS stretches the line to fill)",
+  justify_content_row_space_evenly
+    = "RTL rounds in LTR space before mirroring, as WinUI does",
 }
 
 local number_props = {
@@ -227,6 +229,11 @@ local function convert_test(body)
   for statement in body:gmatch("([^;]+)") do
     statement = trim(statement)
     if statement ~= "" then convert_statement(statement, state) end
+  end
+  local lines = table.concat(state.lines, " ")
+  local physical = lines:find("YT_EDGE_LEFT", 1, true) or lines:find("YT_EDGE_RIGHT", 1, true)
+  if physical and lines:find("XENT_DIRECTION_RTL", 1, true) then
+    skip("non-css: RTL mirrors left/right margin and padding")
   end
   return state.lines
 end

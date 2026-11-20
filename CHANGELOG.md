@@ -4,7 +4,24 @@
 
 - added `xent_setcollapsed` / `xent_collapsed`: a collapsed node lays out as
   0x0, takes no place in its parent's flow (no gap, no grow share, no grid
-  track or baseline contribution), and leaves its subtree unlaid.
+  track or baseline contribution), and leaves its subtree unlaid;
+- right-to-left layout mirrors like WinUI's FlowDirection: an RTL subtree lays
+  out as LTR and then each child is mirrored inside its parent's border box,
+  in all four protocols. Margins, padding and ABSOLUTE positions mirror with
+  it, so `margin_l` / `padding_l` are the start edge;
+- added `xent_dl_mirror`, which mirrors a display list inside a width: shapes
+  and clips flip, transforms are conjugated, and text, images and shapes move
+  without flipping their pixels. Mirrored text gains `XENT_DL_TEXT_RTL`, and
+  text marked `XENT_DL_TEXT_MIRRORABLE` gains `XENT_DL_TEXT_FLIP`, which draws
+  its glyphs flipped.
+
+### Breaking changes
+
+| Change | Migration |
+| --- | --- |
+| RTL FLEX no longer keeps margins and padding physical; they mirror with the layout | Swap left and right values that were meant to stay on a physical side |
+| `xent_resolved_m` / `xent_resolved_p` no longer swap left and right in RTL | Read the start edge from the left fields |
+| Yoga cases that use RTL with left or right edges are skipped as non-CSS | — |
 
 ## 0.3.3
 

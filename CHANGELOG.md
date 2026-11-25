@@ -1,10 +1,13 @@
 # Changelog
 
-## 0.3.4 (unreleased)
+## 0.4.0 (unreleased)
 
 - added `xent_setcollapsed` / `xent_collapsed`: a collapsed node lays out as
   0x0, takes no place in its parent's flow (no gap, no grow share, no grid
   track or baseline contribution), and leaves its subtree unlaid;
+- added `xent_layout_desired_size`, which measures a node's desired size for
+  an available size without laying the tree out. Scratch memory used by the
+  measurement is released before it returns;
 - right-to-left layout mirrors like WinUI's FlowDirection: an RTL subtree lays
   out as LTR and then each child is mirrored inside its parent's border box,
   in all four protocols. Margins, padding and ABSOLUTE positions mirror with

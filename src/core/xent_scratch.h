@@ -9,8 +9,15 @@
 
 typedef struct XentScratchChunk XentScratchChunk;
 
-void                            xent_scratch_reset(XentCtx *ctx);
-void                           *xent_scratch_alloc(XentCtx *ctx, size_t bytes, size_t alignment);
-void                            xent_free_scratch(XentCtx *ctx);
+typedef struct XentScratchMark {
+	XentScratchChunk *chunk;
+	size_t            used;
+} XentScratchMark;
+
+XentScratchMark xent_scratch_mark(XentCtx const *ctx);
+void            xent_scratch_rewind(XentCtx *ctx, XentScratchMark mark);
+void            xent_scratch_reset(XentCtx *ctx);
+void           *xent_scratch_alloc(XentCtx *ctx, size_t bytes, size_t alignment);
+void            xent_free_scratch(XentCtx *ctx);
 
 #endif

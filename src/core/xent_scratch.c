@@ -10,6 +10,18 @@ struct XentScratchChunk {
 	uint8_t                  data [];
 };
 
+XentScratchMark xent_scratch_mark(XentCtx const *ctx) {
+	XentScratchChunk *chunk = ctx->scratch_current;
+	return (XentScratchMark) {chunk, chunk ? chunk->used : 0u};
+}
+
+void xent_scratch_rewind(XentCtx *ctx, XentScratchMark mark) {
+	XentScratchChunk *chunk = mark.chunk;
+	if (chunk) chunk->used = mark.used;
+	for (XentScratchChunk *next = chunk ? chunk->next : ctx->scratch_head; next; next = next->next) next->used = 0u;
+	ctx->scratch_current = chunk ? chunk : ctx->scratch_head;
+}
+
 void xent_scratch_reset(XentCtx *ctx) {
 	if (!ctx) return;
 	for (XentScratchChunk *chunk = ctx->scratch_head; chunk; chunk = chunk->next) chunk->used = 0u;

@@ -1,4 +1,5 @@
 #include "../xent_internal.h"
+#include "../core/xent_scratch.h"
 
 #include "xent_layout_flex.h"
 #include "xent_layout_util.h"
@@ -194,6 +195,16 @@ void xent_compute_intrinsic_size(
   XentCtx *ctx, XentNodeId node, float available_w, float available_h, float *out_w, float *out_h
 ) {
 	compute_intrinsic_size_ex(ctx, node, available_w, available_h, NAN, NAN, out_w, out_h);
+}
+
+bool xent_layout_desired_size(XentCtx *ctx, XentNodeId node, XentSize available, XentSize *out_size) {
+	if (!out_size || !xent_node_valid(ctx, node)) return false;
+	*out_size = (XentSize) {0};
+	if (xent_collapsed(ctx, node)) return true;
+	XentScratchMark mark = xent_scratch_mark(ctx);
+	xent_compute_intrinsic_size(ctx, node, available.w, available.h, &out_size->w, &out_size->h);
+	xent_scratch_rewind(ctx, mark);
+	return true;
 }
 
 static float

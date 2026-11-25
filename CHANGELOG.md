@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0 (unreleased)
+## 0.4.0
 
 - added `xent_setcollapsed` / `xent_collapsed`: a collapsed node lays out as
   0x0, takes no place in its parent's flow (no gap, no grow share, no grid

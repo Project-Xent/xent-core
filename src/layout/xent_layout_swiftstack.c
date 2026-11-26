@@ -115,20 +115,20 @@ static void stack_begin_layout(XentLayoutRequest const *request, StackLayoutFram
 	  ctx, node, available_w, available_h, request->definite_w, request->definite_h, &width, &height
 	);
 
-	ctx->nodes.layout.proposed_w [xent_node_index(node)] = available_w;
-	ctx->nodes.layout.proposed_h [xent_node_index(node)] = available_h;
-	ctx->nodes.layout.decided_w [xent_node_index(node)]  = width;
-	ctx->nodes.layout.decided_h [xent_node_index(node)]  = height;
+	ctx->nodes.layout.decided_w [xent_node_index(node)] = width;
+	ctx->nodes.layout.decided_h [xent_node_index(node)] = height;
 	ctx->nodes.layout.abs_x [xent_node_index(node)] = origin_x + ctx->nodes.layout.abs_pos_x [xent_node_index(node)];
 	ctx->nodes.layout.abs_y [xent_node_index(node)] = origin_y + ctx->nodes.layout.abs_pos_y [xent_node_index(node)];
 	xent_quantize_node_layout(ctx, node);
 
-	width             = ctx->nodes.layout.decided_w [xent_node_index(node)];
-	height            = ctx->nodes.layout.decided_h [xent_node_index(node)];
-	frame->node       = node;
-	frame->horizontal = ctx->nodes.stack.axis [xent_node_index(node)] == ( uint8_t ) XENT_AXIS_HORIZONTAL;
-	frame->baseline_align
-	  = frame->horizontal && ctx->nodes.stack.align [xent_node_index(node)] == ( uint8_t ) XENT_STACK_ALIGN_BASELINE;
+	width                           = ctx->nodes.layout.decided_w [xent_node_index(node)];
+	height                          = ctx->nodes.layout.decided_h [xent_node_index(node)];
+	frame->node                     = node;
+	XentStackComp const *stack_comp = xent_stack_comp_c(&ctx->nodes, xent_node_index(node));
+	uint8_t              axis       = stack_comp ? stack_comp->axis : ( uint8_t ) XENT_AXIS_HORIZONTAL;
+	uint8_t              align      = stack_comp ? stack_comp->align : ( uint8_t ) XENT_STACK_ALIGN_START;
+	frame->horizontal               = axis == ( uint8_t ) XENT_AXIS_HORIZONTAL;
+	frame->baseline_align           = frame->horizontal && align == ( uint8_t ) XENT_STACK_ALIGN_BASELINE;
 	frame->content_x
 	  = ctx->nodes.layout.abs_x [xent_node_index(node)] + ctx->nodes.layout.padding_l [xent_node_index(node)];
 	frame->content_y
@@ -251,10 +251,11 @@ static void stack_resolve_child_sizes(XentCtx *ctx, StackLayoutFrame const *fram
 }
 
 static StackChildData stack_describe_child(XentCtx *ctx, StackLayoutFrame const *frame, XentNodeId child) {
-	StackChildData data = {0};
-	data.node_id        = child;
-	data.spacer         = ctx->nodes.stack.spacer [xent_node_index(child)] != 0u;
-	data.priority       = ctx->nodes.stack.priority [xent_node_index(child)];
+	StackChildData data    = {0};
+	data.node_id           = child;
+	XentStackComp const *s = xent_stack_comp_c(&ctx->nodes, xent_node_index(child));
+	data.spacer            = s ? s->spacer != 0u : false;
+	data.priority          = s ? s->priority : 0.0f;
 	stack_apply_child_margins(ctx, frame, &data);
 	if (!data.spacer) stack_resolve_child_sizes(ctx, frame, &data);
 	return data;
@@ -580,7 +581,8 @@ void xent_layout_node_swiftstack(XentLayoutRequest const *request) {
 	StackLayoutFrame frame                = {0};
 	stack_begin_layout(request, &frame);
 
-	uint32_t child_count = ctx->nodes.topology.child_count [xent_node_index(node)];
+	uint32_t        child_count = ctx->nodes.topology.child_count [xent_node_index(node)];
+	XentScratchMark mark        = xent_scratch_mark(ctx);
 	if (child_count > 0u) {
 		StackBuffers buffers = {0};
 		if (stack_alloc_buffers(ctx, child_count, &buffers)) {
@@ -592,6 +594,7 @@ void xent_layout_node_swiftstack(XentLayoutRequest const *request) {
 			stack_layout_children(ctx, &frame, &buffers, stats.count);
 		}
 	}
+	xent_scratch_rewind(ctx, mark);
 
 	ctx->swiftstack_scope_depth      -= 1u;
 	ctx->profile.swiftstack_total_ms += (xent_now_ms() - swiftstack_start_ms);

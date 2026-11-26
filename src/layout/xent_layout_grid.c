@@ -78,10 +78,8 @@ static void grid_commit_container(XentLayoutRequest const *request, GridLayoutFr
 	  ctx, node, request->available_w, request->available_h, request->definite_w, request->definite_h, &width, &height
 	);
 
-	ctx->nodes.layout.proposed_w [xent_node_index(node)] = request->available_w;
-	ctx->nodes.layout.proposed_h [xent_node_index(node)] = request->available_h;
-	ctx->nodes.layout.decided_w [xent_node_index(node)]  = width;
-	ctx->nodes.layout.decided_h [xent_node_index(node)]  = height;
+	ctx->nodes.layout.decided_w [xent_node_index(node)] = width;
+	ctx->nodes.layout.decided_h [xent_node_index(node)] = height;
 	ctx->nodes.layout.abs_x [xent_node_index(node)]
 	  = request->origin_x + ctx->nodes.layout.abs_pos_x [xent_node_index(node)];
 	ctx->nodes.layout.abs_y [xent_node_index(node)]
@@ -148,12 +146,11 @@ static bool grid_init_tracks(XentCtx *ctx, GridTrackSet *tracks, GridTrackInit i
 
 static GridAxisPlacement
 grid_axis_placement(XentCtx const *ctx, XentNodeId child, GridAxis axis, uint32_t track_count) {
-	uint16_t index = axis == GRID_AXIS_COLUMNS ? ctx->nodes.grid.column [xent_node_index(child)]
-	                                           : ctx->nodes.grid.row [xent_node_index(child)];
-	uint16_t span  = axis == GRID_AXIS_COLUMNS ? ctx->nodes.grid.column_span [xent_node_index(child)]
-	                                           : ctx->nodes.grid.row_span [xent_node_index(child)];
-	index          = clamp_track(index, track_count);
-	span           = clamp_span(index, span, track_count);
+	XentGridComp const *g     = xent_grid_comp_c(&ctx->nodes, xent_node_index(child));
+	uint16_t            index = g ? (axis == GRID_AXIS_COLUMNS ? g->column : g->row) : 0u;
+	uint16_t            span  = g ? (axis == GRID_AXIS_COLUMNS ? g->column_span : g->row_span) : 1u;
+	index                     = clamp_track(index, track_count);
+	span                      = clamp_span(index, span, track_count);
 	return (GridAxisPlacement) {index, span};
 }
 
@@ -313,9 +310,11 @@ void xent_layout_node_grid(XentLayoutRequest const *request) {
 	ctx->profile.grid_layout_calls += 1u;
 	ctx->grid_scope_depth          += 1u;
 	GridLayoutFrame frame           = {0};
+	XentScratchMark mark            = xent_scratch_mark(ctx);
 	grid_commit_container(request, &frame);
 
-	XentGridDef const *def = ctx->nodes.grid.def [xent_node_index(node)];
+	XentGridComp const *grid_comp = xent_grid_comp_c(&ctx->nodes, xent_node_index(node));
+	XentGridDef const  *def       = grid_comp ? grid_comp->def : NULL;
 	if (!def) {
 		double children_start = xent_now_ms();
 		grid_layout_fallback_children(ctx, &frame);
@@ -351,6 +350,7 @@ void xent_layout_node_grid(XentLayoutRequest const *request) {
 	ctx->profile.grid_children_ms += (xent_now_ms() - children_start);
 
 finish:
+	xent_scratch_rewind(ctx, mark);
 	ctx->grid_scope_depth      -= 1u;
 	ctx->profile.grid_total_ms += (xent_now_ms() - start);
 }

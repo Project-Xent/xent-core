@@ -2,13 +2,16 @@
 
 static bool set_flex_float(XentCtx *ctx, XentNodeId node, float *slot, float value, bool clamp_nonnegative) {
 	if (!xent_node_valid(ctx, node)) return false;
-	*slot = clamp_nonnegative && value < 0.0f ? 0.0f : value;
+	float v = clamp_nonnegative && value < 0.0f ? 0.0f : value;
+	if (xent_f32_same(*slot, v)) return true;
+	*slot = v;
 	xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
 	return true;
 }
 
 static bool set_flex_u8(XentCtx *ctx, XentNodeId node, uint8_t *slot, uint8_t value) {
 	if (!xent_node_valid(ctx, node)) return false;
+	if (*slot == value) return true;
 	*slot = value;
 	xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
 	return true;

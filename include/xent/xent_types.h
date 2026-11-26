@@ -133,10 +133,12 @@ typedef enum XentSemRole
 
 typedef enum XentDirtyFlags
 {
-	XENT_DIRTY_NONE    = 0,
-	XENT_DIRTY_SELF    = 1u << 0,
-	XENT_DIRTY_SUBTREE = 1u << 1,
-	XENT_DIRTY_LAYOUT  = 1u << 2,
+	XENT_DIRTY_NONE      = 0,
+	XENT_DIRTY_SELF      = 1u << 0,
+	XENT_DIRTY_SUBTREE   = 1u << 1,
+	XENT_DIRTY_LAYOUT    = 1u << 2,
+	XENT_DIRTY_PAINT     = 1u << 3,
+	XENT_DIRTY_SEMANTICS = 1u << 4,
 } XentDirtyFlags;
 
 typedef enum XentLayoutStrategy
@@ -202,8 +204,9 @@ typedef enum XentChildOrder
 
 typedef enum XentNodeEventKind
 {
-	XENT_NODE_EVENT_DESTROY  = 1,
-	XENT_NODE_EVENT_REPARENT = 2,
+	XENT_NODE_EVENT_DESTROY   = 1,
+	XENT_NODE_EVENT_REPARENT  = 2,
+	XENT_NODE_EVENT_COLLAPSED = 3,
 } XentNodeEventKind;
 
 typedef struct XentNodeEvent {

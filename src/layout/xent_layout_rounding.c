@@ -66,11 +66,16 @@ static void scatter_quantize_buffers(XentCtx *ctx, QuantizeBuffers buffers, uint
 
 static bool batch_quantize_ispc(XentCtx *ctx, uint32_t count, float scale) {
 	if (!ctx->config.enable_simd || count < 64u) return false;
+	XentScratchMark mark    = xent_scratch_mark(ctx);
 	QuantizeBuffers buffers = alloc_quantize_buffers(ctx, count);
-	if (!buffers.x) return false;
+	if (!buffers.x) {
+		xent_scratch_rewind(ctx, mark);
+		return false;
+	}
 	gather_quantize_buffers(ctx, buffers, count);
 	xent_ispc_quantize_rects(buffers.x, buffers.y, buffers.w, buffers.h, count, scale);
 	scatter_quantize_buffers(ctx, buffers, count);
+	xent_scratch_rewind(ctx, mark);
 	return true;
 }
 #endif
@@ -93,19 +98,22 @@ static void invalidate_all_layout(XentCtx *ctx) {
 	if (ctx->config.enable_simd && n >= 64u) {
 		uint32_t flags = XENT_DIRTY_LAYOUT | XENT_DIRTY_SUBTREE | XENT_DIRTY_SELF;
 		xent_ispc_or_u32_masked(ctx->nodes.layout.dirty_flags + 1, ctx->nodes.lifetime.alive + 1, n, flags);
-		xent_ispc_zero_u8_masked(ctx->nodes.text.intrinsic_valid + 1, ctx->nodes.lifetime.alive + 1, n);
 	}
 	else
 #endif
-		for (uint32_t i = 1u; i <= n; ++i) {
-			if (ctx->nodes.lifetime.alive [i]) {
-				ctx->nodes.layout.dirty_flags [i]   |= XENT_DIRTY_LAYOUT | XENT_DIRTY_SUBTREE | XENT_DIRTY_SELF;
-				ctx->nodes.text.intrinsic_valid [i]  = 0u;
-			}
-		}
-	ctx->last_layout_root        = XENT_NODE_INVALID;
-	ctx->last_layout_available_w = NAN;
-	ctx->last_layout_available_h = NAN;
+		for (uint32_t i = 1u; i <= n; ++i)
+			if (ctx->nodes.lifetime.alive [i])
+				ctx->nodes.layout.dirty_flags [i] |= XENT_DIRTY_LAYOUT | XENT_DIRTY_SUBTREE | XENT_DIRTY_SELF;
+
+	for (uint32_t s = 1u; s <= ctx->nodes.text_pool.count; ++s) {
+		XentTextComp *t = ( XentTextComp * ) xent_pool_get(&ctx->nodes.text_pool, sizeof(*t), s);
+		if (t && t->active) t->intrinsic_valid = 0u;
+	}
+	for (uint32_t s = 1u; s <= ctx->nodes.measure_pool.count; ++s) {
+		XentMeasureCache *m = ( XentMeasureCache * ) xent_pool_get(&ctx->nodes.measure_pool, sizeof(*m), s);
+		if (m && m->active) m->count = 0u;
+	}
+	xent_invalidate_root_snapshots(ctx, XENT_NODE_INVALID);
 }
 
 bool xent_setscale(XentCtx *ctx, float point_scale_factor) {

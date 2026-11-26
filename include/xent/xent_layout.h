@@ -74,6 +74,7 @@ bool               xent_setrounding(XentCtx *ctx, bool enabled);
 bool               xent_rounding(XentCtx const *ctx);
 
 bool               xent_layout(XentCtx *ctx, XentNodeId root, float available_width, float available_height);
+bool               xent_has_layout_dirty(XentCtx const *ctx, XentNodeId root);
 bool               xent_layout_desired_size(XentCtx *ctx, XentNodeId node, XentSize available, XentSize *out_size);
 bool               xent_layout_rect(XentCtx const *ctx, XentNodeId node, XentRect *out_rect);
 XentLayoutStrategy xent_layout_strategy(XentCtx const *ctx);

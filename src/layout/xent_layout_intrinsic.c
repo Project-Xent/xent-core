@@ -12,6 +12,14 @@ typedef struct XentIntrinsicInput {
 	XentLineBreakPolicy line_break_policy;
 } XentIntrinsicInput;
 
+static uint32_t norm_f32_bits(float v) {
+	if (isnan(v)) return 0x7fc00000u;
+	if (v == 0.0f) return 0u;
+	uint32_t b = 0u;
+	memcpy(&b, &v, sizeof(b));
+	return b;
+}
+
 static XentMeasureMode resolve_intrinsic_width_mode(float width, float *text_constraint) {
 	if (!isnan(width)) return XENT_MEASURE_EXACTLY;
 	if (isfinite(*text_constraint) && *text_constraint > 0.0f) return XENT_MEASURE_AT_MOST;
@@ -27,58 +35,57 @@ static float resolve_style_axis(float absolute, float fraction, float available)
 
 static XentIntrinsicInput
 make_intrinsic_input(XentCtx const *ctx, XentNodeId node, float available_w, float available_h) {
-	XentIntrinsicInput input = {
-	  resolve_style_axis(
-		ctx->nodes.layout.style_w [xent_node_index(node)], ctx->nodes.layout.style_w_percent [xent_node_index(node)],
-		available_w
-	  ),
-	  resolve_style_axis(
-		ctx->nodes.layout.style_h [xent_node_index(node)], ctx->nodes.layout.style_h_percent [xent_node_index(node)],
-		available_h
-	  ),
+	uint32_t            idx   = xent_node_index(node);
+	XentTextComp const *tc    = xent_text_comp_c(&ctx->nodes, idx);
+	XentIntrinsicInput  input = {
+	  resolve_style_axis(ctx->nodes.layout.style_w [idx], ctx->nodes.layout.style_w_percent [idx], available_w),
+	  resolve_style_axis(ctx->nodes.layout.style_h [idx], ctx->nodes.layout.style_h_percent [idx], available_h),
 	  available_w,
 	  XENT_MEASURE_UNDEFINED,
-	  ( XentLineBreakPolicy ) ctx->nodes.text.line_break_policy [xent_node_index(node)],
+	  tc ? ( XentLineBreakPolicy ) tc->line_break_policy : XENT_LINEBREAK_CHARWRAP,
 	};
 
 	if (!isnan(input.width)) input.text_constraint = input.width;
 	input.width_mode = resolve_intrinsic_width_mode(input.width, &input.text_constraint);
 	if (input.width_mode != XENT_MEASURE_EXACTLY && (!isfinite(input.text_constraint) || input.text_constraint <= 0.0f))
 		input.text_constraint = INFINITY;
-	( void ) available_h;
 	return input;
 }
 
 static bool has_intrinsic_cache(XentCtx const *ctx, XentNodeId node, XentIntrinsicInput const *input) {
-	return ctx->nodes.text.intrinsic_valid [xent_node_index(node)] != 0u
-	    && ctx->nodes.text.intrinsic_font_size [xent_node_index(node)] == xent_fontsize(ctx, node)
-	    && ctx->nodes.text.intrinsic_font_weight [xent_node_index(node)] == xent_fontweight(ctx, node)
-	    && ctx->nodes.text.intrinsic_constraint_w [xent_node_index(node)] == input->text_constraint
-	    && ctx->nodes.text.intrinsic_line_break_policy [xent_node_index(node)] == ( uint8_t ) input->line_break_policy
-	    && ctx->nodes.text.intrinsic_width_mode [xent_node_index(node)] == ( uint8_t ) input->width_mode;
+	XentTextComp const *tc = xent_text_comp_c(&ctx->nodes, xent_node_index(node));
+	if (!tc || tc->intrinsic_valid == 0u) return false;
+	return tc->intrinsic_font_size == xent_fontsize(ctx, node)
+	    && tc->intrinsic_font_weight == xent_fontweight(ctx, node)
+	    && tc->intrinsic_constraint_w == input->text_constraint
+	    && tc->intrinsic_line_break_policy == ( uint8_t ) input->line_break_policy
+	    && tc->intrinsic_width_mode == ( uint8_t ) input->width_mode;
 }
 
 static XentTextMetrics read_intrinsic_cache(XentCtx const *ctx, XentNodeId node) {
+	XentTextComp const *tc = xent_text_comp_c(&ctx->nodes, xent_node_index(node));
 	return (XentTextMetrics) {
-	  .width          = ctx->nodes.text.intrinsic_w [xent_node_index(node)],
-	  .height         = ctx->nodes.text.intrinsic_h [xent_node_index(node)],
-	  .line_count     = ctx->nodes.text.intrinsic_lines [xent_node_index(node)],
-	  .first_baseline = ctx->nodes.text.intrinsic_baseline [xent_node_index(node)],
+	  .width          = tc->intrinsic_w,
+	  .height         = tc->intrinsic_h,
+	  .line_count     = tc->intrinsic_lines,
+	  .first_baseline = tc->intrinsic_baseline,
 	};
 }
 
 static void
 write_intrinsic_cache(XentCtx *ctx, XentNodeId node, XentIntrinsicInput const *input, XentTextMetrics const *metrics) {
-	ctx->nodes.text.intrinsic_valid [xent_node_index(node)]             = 1u;
-	ctx->nodes.text.intrinsic_constraint_w [xent_node_index(node)]      = input->text_constraint;
-	ctx->nodes.text.intrinsic_font_size [xent_node_index(node)]         = xent_fontsize(ctx, node);
-	ctx->nodes.text.intrinsic_font_weight [xent_node_index(node)]       = xent_fontweight(ctx, node);
-	ctx->nodes.text.intrinsic_line_break_policy [xent_node_index(node)] = ( uint8_t ) input->line_break_policy;
-	ctx->nodes.text.intrinsic_width_mode [xent_node_index(node)]        = ( uint8_t ) input->width_mode;
-	ctx->nodes.text.intrinsic_w [xent_node_index(node)]                 = metrics->width;
-	ctx->nodes.text.intrinsic_h [xent_node_index(node)]                 = metrics->height;
-	ctx->nodes.text.intrinsic_lines [xent_node_index(node)]             = metrics->line_count;
-	ctx->nodes.text.intrinsic_baseline [xent_node_index(node)]          = metrics->first_baseline;
+	XentTextComp *tc = xent_text_comp_ensure(&ctx->nodes, xent_node_index(node));
+	if (!tc) return;
+	tc->intrinsic_valid             = 1u;
+	tc->intrinsic_constraint_w      = input->text_constraint;
+	tc->intrinsic_font_size         = xent_fontsize(ctx, node);
+	tc->intrinsic_font_weight       = xent_fontweight(ctx, node);
+	tc->intrinsic_line_break_policy = ( uint8_t ) input->line_break_policy;
+	tc->intrinsic_width_mode        = ( uint8_t ) input->width_mode;
+	tc->intrinsic_w                 = metrics->width;
+	tc->intrinsic_h                 = metrics->height;
+	tc->intrinsic_lines             = metrics->line_count;
+	tc->intrinsic_baseline          = metrics->first_baseline;
 }
 
 static XentIntrinsicInput resolve_intrinsic_mode(XentCtx const *ctx, XentIntrinsicInput input) {
@@ -99,17 +106,18 @@ measure_intrinsic_text(XentCtx *ctx, XentNodeId node, XentIntrinsicInput const *
 		return true;
 	}
 
-	uint32_t           index   = xent_node_index(node);
-	XentTextMeasureReq request = {
-	  .text              = ctx->nodes.text.content [index],
-	  .runs              = ctx->nodes.text.runs [index],
-	  .run_count         = ctx->nodes.text.run_count [index],
-	  .font_family       = ctx->nodes.text.font_family [index],
+	uint32_t            index   = xent_node_index(node);
+	XentTextComp const *tc      = xent_text_comp_c(&ctx->nodes, index);
+	XentTextMeasureReq  request = {
+	  .text              = tc ? tc->content : NULL,
+	  .runs              = tc ? tc->runs : NULL,
+	  .run_count         = tc ? tc->run_count : 0u,
+	  .font_family       = tc ? tc->font_family : NULL,
 	  .font_size         = xent_fontsize(ctx, node),
 	  .font_weight       = xent_fontweight(ctx, node),
 	  .width_constraint  = input->text_constraint,
-	  .max_lines         = ctx->nodes.text.max_lines [index],
-	  .trim              = ( XentTextTrim ) ctx->nodes.text.trim [index],
+	  .max_lines         = tc ? tc->max_lines : 0u,
+	  .trim              = tc ? ( XentTextTrim ) tc->trim : XENT_TEXT_TRIM_NONE,
 	  .line_break_policy = input->line_break_policy,
 	  .width_mode        = input->width_mode,
 	};
@@ -121,14 +129,14 @@ measure_intrinsic_text(XentCtx *ctx, XentNodeId node, XentIntrinsicInput const *
 
 static void
 apply_text_intrinsic_size(XentCtx *ctx, XentNodeId node, XentIntrinsicInput const *input, float *width, float *height) {
-	XentTextMetrics metrics = {0};
-	char const     *content = ctx->nodes.text.content [xent_node_index(node)];
+	XentTextMetrics     metrics = {0};
+	uint32_t            idx     = xent_node_index(node);
+	XentTextComp const *tc      = xent_text_comp_c(&ctx->nodes, idx);
+	char const         *content = tc ? tc->content : NULL;
 	if (!content || content [0] == '\0' || (!isnan(*width) && !isnan(*height))) return;
 
-	float pad_w
-	  = ctx->nodes.layout.padding_l [xent_node_index(node)] + ctx->nodes.layout.padding_r [xent_node_index(node)];
-	float pad_h
-	  = ctx->nodes.layout.padding_t [xent_node_index(node)] + ctx->nodes.layout.padding_b [xent_node_index(node)];
+	float              pad_w  = ctx->nodes.layout.padding_l [idx] + ctx->nodes.layout.padding_r [idx];
+	float              pad_h  = ctx->nodes.layout.padding_t [idx] + ctx->nodes.layout.padding_b [idx];
 
 	XentIntrinsicInput padded = *input;
 	if (isfinite(padded.text_constraint) && pad_w > 0.0f)
@@ -156,18 +164,77 @@ static void resolve_auto_size(float available_w, float available_h, float *width
 }
 
 static void apply_size_constraints(XentCtx const *ctx, XentNodeId node, float *width, float *height) {
-	*width = xent_clampf(
-	  *width, ctx->nodes.layout.min_w [xent_node_index(node)], ctx->nodes.layout.max_w [xent_node_index(node)]
-	);
-	*height = xent_clampf(
-	  *height, ctx->nodes.layout.min_h [xent_node_index(node)], ctx->nodes.layout.max_h [xent_node_index(node)]
-	);
+	uint32_t idx = xent_node_index(node);
+	*width       = xent_clampf(*width, ctx->nodes.layout.min_w [idx], ctx->nodes.layout.max_w [idx]);
+	*height      = xent_clampf(*height, ctx->nodes.layout.min_h [idx], ctx->nodes.layout.max_h [idx]);
+}
+
+static XentMeasureCacheSlot
+make_measure_key(uint8_t sizing_mode, float available_w, float available_h, float forced_w, float forced_h) {
+	return (XentMeasureCacheSlot) {
+	  .avail_w_bits  = norm_f32_bits(available_w),
+	  .avail_h_bits  = norm_f32_bits(available_h),
+	  .forced_w_bits = norm_f32_bits(forced_w),
+	  .forced_h_bits = norm_f32_bits(forced_h),
+	  .sizing_mode   = sizing_mode,
+	};
+}
+
+static bool
+lookup_container_measure(XentCtx *ctx, uint32_t idx, XentMeasureCacheSlot const *key, float *out_w, float *out_h) {
+	XentMeasureCache *cache = xent_measure_cache(&ctx->nodes, idx);
+	if (!cache) return false;
+	for (uint8_t i = 0u; i < cache->count; ++i) {
+		XentMeasureCacheSlot const *s = &cache->slots [i];
+		if (s->avail_w_bits == key->avail_w_bits
+		    && s->avail_h_bits == key->avail_h_bits
+		    && s->forced_w_bits == key->forced_w_bits
+		    && s->forced_h_bits == key->forced_h_bits
+		    && s->sizing_mode == key->sizing_mode)
+		{
+			*out_w = s->out_w;
+			*out_h = s->out_h;
+			return true;
+		}
+	}
+	return false;
+}
+
+static void
+store_container_measure(XentCtx *ctx, uint32_t idx, XentMeasureCacheSlot const *key, float out_w, float out_h) {
+	XentMeasureCache *cache = xent_measure_cache_ensure(&ctx->nodes, idx);
+	if (!cache) return;
+	uint8_t slot = cache->count < XENT_MEASURE_CACHE_SLOTS ? cache->count++ : cache->next_evict;
+	if (cache->count == XENT_MEASURE_CACHE_SLOTS)
+		cache->next_evict = ( uint8_t ) ((cache->next_evict + 1u) % XENT_MEASURE_CACHE_SLOTS);
+	cache->slots [slot]       = *key;
+	cache->slots [slot].out_w = out_w;
+	cache->slots [slot].out_h = out_h;
+}
+
+static bool should_cache_container(XentCtx const *ctx, XentNodeId node, uint32_t idx) {
+	if (ctx->nodes.topology.child_count [idx] == 0u) return false;
+	if (ctx->nodes.layout.protocol [idx] != ( uint8_t ) XENT_PROTOCOL_FLEX) return false;
+	bool auto_axis = isnan(ctx->nodes.layout.style_w [idx])
+	              || isnan(ctx->nodes.layout.style_h [idx])
+	              || ctx->nodes.layout.wrap_content_w [idx]
+	              || ctx->nodes.layout.wrap_content_h [idx];
+	if (!auto_axis) return false;
+	return ctx->external_measure_cap == 0u || !xent_node_hasmeasure(ctx, node);
 }
 
 static void compute_intrinsic_size_ex(
   XentCtx *ctx, XentNodeId node, float available_w, float available_h, float forced_w, float forced_h, float *out_w,
   float *out_h
 ) {
+	uint32_t             idx       = xent_node_index(node);
+	bool                 can_cache = should_cache_container(ctx, node, idx);
+	XentMeasureCacheSlot key       = {0};
+	if (can_cache) {
+		key = make_measure_key(ctx->sizing_mode, available_w, available_h, forced_w, forced_h);
+		if (lookup_container_measure(ctx, idx, &key, out_w, out_h)) return;
+	}
+
 	XentIntrinsicInput input = make_intrinsic_input(ctx, node, available_w, available_h);
 	if (!isnan(forced_w)) {
 		input.width           = forced_w;
@@ -179,9 +246,10 @@ static void compute_intrinsic_size_ex(
 	float width  = input.width;
 	float height = input.height;
 
-	( void ) xent_resolve_external_measure(ctx, node, available_w, available_h, &width, &height);
+	if (ctx->external_measure_cap > 0u)
+		( void ) xent_resolve_external_measure(ctx, node, available_w, available_h, &width, &height);
 
-	apply_text_intrinsic_size(ctx, node, &input, &width, &height);
+	if (ctx->nodes.cold.text [idx] != 0u) apply_text_intrinsic_size(ctx, node, &input, &width, &height);
 	apply_aspect_ratio(ctx, node, &width, &height);
 	xent_flex_wrap_content(ctx, node, available_w, available_h, &width, &height);
 	resolve_auto_size(available_w, available_h, &width, &height);
@@ -189,6 +257,7 @@ static void compute_intrinsic_size_ex(
 
 	*out_w = width;
 	*out_h = height;
+	if (can_cache) store_container_measure(ctx, idx, &key, width, height);
 }
 
 void xent_compute_intrinsic_size(

@@ -217,10 +217,8 @@ static void flex_begin_layout(XentLayoutRequest const *request, FlexLayoutFrame 
 	  ctx, node, available_w, available_h, request->definite_w, request->definite_h, &width, &height
 	);
 
-	ctx->nodes.layout.proposed_w [xent_node_index(node)] = available_w;
-	ctx->nodes.layout.proposed_h [xent_node_index(node)] = available_h;
-	ctx->nodes.layout.decided_w [xent_node_index(node)]  = width;
-	ctx->nodes.layout.decided_h [xent_node_index(node)]  = height;
+	ctx->nodes.layout.decided_w [xent_node_index(node)] = width;
+	ctx->nodes.layout.decided_h [xent_node_index(node)] = height;
 	ctx->nodes.layout.abs_x [xent_node_index(node)] = origin_x + ctx->nodes.layout.abs_pos_x [xent_node_index(node)];
 	ctx->nodes.layout.abs_y [xent_node_index(node)] = origin_y + ctx->nodes.layout.abs_pos_y [xent_node_index(node)];
 	xent_quantize_node_layout(ctx, node);
@@ -400,10 +398,6 @@ static float flex_total_lines_cross(
 	if (line_count > 1u) total += line_gap * ( float ) (line_count - 1u);
 	*out_line_gap = line_gap;
 	return total;
-}
-
-static bool flex_has_distribution(float delta, FlexLineData const *line) {
-	return (delta > 0.0f && line->sum_grow > 0.0f) || (delta < 0.0f && line->sum_shrink_weight > 0.0f);
 }
 
 #if XENT_ISPC_ENABLED
@@ -806,8 +800,10 @@ static float flex_size_line(XentCtx *ctx, FlexLayoutFrame const *frame, FlexLine
 	float max_cross = 0.0f;
 	for (uint32_t i = 0u; i < line->count; ++i) {
 		FlexChildData *entry = &children [line->start + i];
-		entry->base_cross
-		  = xent_compute_hypothetical_cross(ctx, entry->id, frame->row, entry->final_main, frame->available_cross);
+		if (!xent_f32_same(entry->final_main, entry->hypothetical_main)) {
+			entry->base_cross
+			  = xent_compute_hypothetical_cross(ctx, entry->id, frame->row, entry->final_main, frame->available_cross);
+		}
 		float outer = flex_child_cross_outer(entry);
 		if (outer > max_cross) max_cross = outer;
 	}
@@ -840,9 +836,13 @@ void xent_flex_intrinsic_content(
 	uint32_t cap = ctx->nodes.topology.child_count [xent_node_index(node)];
 	if (cap == 0u) return;
 
-	FlexChildData *children = NULL;
-	FlexLineData  *lines    = NULL;
-	if (!flex_alloc_buffers(ctx, cap, &children, &lines)) return;
+	XentScratchMark mark     = xent_scratch_mark(ctx);
+	FlexChildData  *children = NULL;
+	FlexLineData   *lines    = NULL;
+	if (!flex_alloc_buffers(ctx, cap, &children, &lines)) {
+		xent_scratch_rewind(ctx, mark);
+		return;
+	}
 
 	FlexLayoutFrame frame = flex_measure_frame(ctx, node, avail_main, avail_cross, row);
 	uint32_t        count = flex_collect_children(ctx, &frame, children, cap);
@@ -851,6 +851,7 @@ void xent_flex_intrinsic_content(
 		flex_compute_line_set(ctx, &frame, children, lines, line_count);
 		flex_sum_intrinsic_lines(ctx, &frame, children, lines, line_count, out_main, out_cross);
 	}
+	xent_scratch_rewind(ctx, mark);
 }
 
 static float flex_avail_main(bool hug, float dim, float avail, float pad) {
@@ -917,6 +918,7 @@ void xent_layout_node_flex(XentLayoutRequest const *request) {
 	double     start                = xent_now_ms();
 	ctx->profile.flex_layout_calls += 1u;
 	ctx->flex_scope_depth          += 1u;
+	XentScratchMark mark            = xent_scratch_mark(ctx);
 	FlexLayoutFrame frame           = {0};
 	flex_begin_layout(request, &frame);
 
@@ -940,6 +942,7 @@ void xent_layout_node_flex(XentLayoutRequest const *request) {
 	}
 
 finish:
+	xent_scratch_rewind(ctx, mark);
 	ctx->flex_scope_depth      -= 1u;
 	ctx->profile.flex_total_ms += (xent_now_ms() - start);
 }

@@ -6,8 +6,6 @@ static void copy_f(float *d, float const *s, uint32_t di, uint32_t si) { d [di] 
 
 static void copy_i32(int32_t *d, int32_t const *s, uint32_t di, uint32_t si) { d [di] = s [si]; }
 
-static void copy_u16(uint16_t *d, uint16_t const *s, uint32_t di, uint32_t si) { d [di] = s [si]; }
-
 static void copy_layout_style(XentCtx *ctx, uint32_t di, uint32_t si) {
 	XentNodeLayoutStore *L = &ctx->nodes.layout;
 	copy_u8(L->protocol, L->protocol, di, si);
@@ -52,29 +50,61 @@ static void copy_flex_style(XentCtx *ctx, uint32_t di, uint32_t si) {
 	copy_u8(F->align_content, F->align_content, di, si);
 }
 
-static void copy_stack_style(XentCtx *ctx, uint32_t di, uint32_t si) {
-	XentNodeStackStore *S = &ctx->nodes.stack;
-	copy_u8(S->axis, S->axis, di, si);
-	copy_u8(S->align, S->align, di, si);
-	copy_f(S->priority, S->priority, di, si);
-	copy_u8(S->spacer, S->spacer, di, si);
+static bool copy_stack_style(XentCtx *ctx, uint32_t di, uint32_t si) {
+	XentStackComp const *src = xent_stack_comp_c(&ctx->nodes, si);
+	if (!src) {
+		xent_pool_release(&ctx->nodes.stack_pool, sizeof(XentStackComp), &ctx->nodes.cold.stack [di]);
+		return true;
+	}
+	XentStackComp *dst = xent_stack_comp_ensure(&ctx->nodes, di);
+	if (!dst) return false;
+	dst->axis     = src->axis;
+	dst->align    = src->align;
+	dst->priority = src->priority;
+	dst->spacer   = src->spacer;
+	return true;
 }
 
-static void copy_grid_placement(XentCtx *ctx, uint32_t di, uint32_t si) {
-	XentNodeGridStore *G = &ctx->nodes.grid;
-	copy_u16(G->row, G->row, di, si);
-	copy_u16(G->column, G->column, di, si);
-	copy_u16(G->row_span, G->row_span, di, si);
-	copy_u16(G->column_span, G->column_span, di, si);
+static bool copy_grid_style(XentCtx *ctx, uint32_t di, uint32_t si) {
+	XentGridComp const *src = xent_grid_comp_c(&ctx->nodes, si);
+	if (!src) {
+		if (ctx->nodes.cold.grid [di]) {
+			XentGridComp *old
+			  = ( XentGridComp * ) xent_pool_get(&ctx->nodes.grid_pool, sizeof(*old), ctx->nodes.cold.grid [di]);
+			if (old) {
+				xent_grid_def_free(old->def);
+				old->def = NULL;
+			}
+			xent_pool_release(&ctx->nodes.grid_pool, sizeof(XentGridComp), &ctx->nodes.cold.grid [di]);
+		}
+		return true;
+	}
+	XentGridDef *def = xent_grid_def_copy(src->def);
+	if (src->def && !def) return false;
+	XentGridComp *dst = xent_grid_comp_ensure(&ctx->nodes, di);
+	if (!dst) {
+		xent_grid_def_free(def);
+		return false;
+	}
+	xent_grid_def_free(dst->def);
+	dst->def         = def;
+	dst->row         = src->row;
+	dst->column      = src->column;
+	dst->row_span    = src->row_span;
+	dst->column_span = src->column_span;
+	return true;
 }
 
 static bool copy_text_measure(XentCtx *ctx, XentNodeId dst, uint32_t di, uint32_t si) {
-	XentNodeTextStore *T = &ctx->nodes.text;
-	if (!xent_settext(ctx, dst, T->content [si])) return false;
-	copy_f(T->font_size, T->font_size, di, si);
-	copy_u16(T->font_weight, T->font_weight, di, si);
-	copy_u8(T->line_break_policy, T->line_break_policy, di, si);
-	T->intrinsic_valid [di] = 0u;
+	XentTextComp const *src = xent_text_comp_c(&ctx->nodes, si);
+	if (!src) return xent_settext(ctx, dst, NULL);
+	if (!xent_settext(ctx, dst, src->content)) return false;
+	XentTextComp *t = xent_text_comp_ensure(&ctx->nodes, di);
+	if (!t) return false;
+	t->font_size         = src->font_size;
+	t->font_weight       = src->font_weight;
+	t->line_break_policy = src->line_break_policy;
+	t->intrinsic_valid   = 0u;
 	return true;
 }
 
@@ -85,11 +115,8 @@ bool xent_copystyle(XentCtx *ctx, XentNodeId dst, XentNodeId src) {
 
 	copy_layout_style(ctx, di, si);
 	copy_flex_style(ctx, di, si);
-	copy_stack_style(ctx, di, si);
-	copy_grid_placement(ctx, di, si);
-	xent_grid_def_free(ctx->nodes.grid.def [di]);
-	ctx->nodes.grid.def [di] = xent_grid_def_copy(ctx->nodes.grid.def [si]);
-	if (ctx->nodes.grid.def [si] && !ctx->nodes.grid.def [di]) return false;
+	if (!copy_stack_style(ctx, di, si)) return false;
+	if (!copy_grid_style(ctx, di, si)) return false;
 	if (!copy_text_measure(ctx, dst, di, si)) return false;
 
 	xent_mark_dirty(ctx, dst, XENT_DIRTY_LAYOUT);

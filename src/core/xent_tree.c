@@ -47,8 +47,9 @@ static void unlink_child(XentCtx *ctx, uint32_t parent, uint32_t child) {
 }
 
 static uint32_t alloc_slot(XentCtx *ctx, uint32_t *out_generation) {
-	if (ctx->free_count > 0u) {
-		uint32_t index  = ctx->free_indices [--ctx->free_count];
+	while (ctx->free_count > 0u) {
+		uint32_t index = ctx->free_indices [--ctx->free_count];
+		if (index == 0u || index > ctx->nodes.count || ctx->nodes.lifetime.alive [index]) continue;
 		uint32_t gen    = ctx->nodes.lifetime.generation [index];
 		*out_generation = gen == 0u ? 1u : gen;
 		return index;
@@ -61,7 +62,9 @@ static uint32_t alloc_slot(XentCtx *ctx, uint32_t *out_generation) {
 		ctx->nodes.count--;
 		return 0u;
 	}
-	*out_generation = 1u;
+	uint32_t gen    = ctx->nodes.lifetime.generation [index];
+	uint32_t min_g  = ctx->nodes.min_generation ? ctx->nodes.min_generation : 1u;
+	*out_generation = gen < min_g ? min_g : gen;
 	return index;
 }
 
@@ -73,34 +76,44 @@ XentNodeId xent_node_create(XentCtx *ctx) {
 	uint32_t index = alloc_slot(ctx, &gen);
 	if (!index) return XENT_NODE_INVALID;
 
-	xent_text_release_node(&ctx->nodes, index);
-	free(ctx->nodes.semantics.label [index]);
-	ctx->nodes.semantics.label [index] = NULL;
-	xent_grid_def_free(ctx->nodes.grid.def [index]);
-	ctx->nodes.grid.def [index] = NULL;
-
+	xent_release_node_cold_slots(&ctx->nodes, index);
 	xent_arena_reset_node(&ctx->nodes, index);
 	ctx->nodes.lifetime.generation [index] = gen;
 	ctx->nodes.lifetime.alive [index]      = 1u;
-	XentNodeId id                          = xent_node_make(index, gen);
+	ctx->nodes.live_count++;
+	XentNodeId id = xent_node_make(index, gen);
 	xent_mark_dirty(ctx, id, XENT_DIRTY_LAYOUT);
 	return id;
+}
+
+static void compact_free_indices(XentCtx *ctx, uint32_t limit) {
+	uint32_t write = 0u;
+	for (uint32_t i = 0u; i < ctx->free_count; ++i)
+		if (ctx->free_indices [i] <= limit) ctx->free_indices [write++] = ctx->free_indices [i];
+	ctx->free_count = write;
+}
+
+static void trim_tail_slots(XentCtx *ctx) {
+	uint32_t prev = ctx->nodes.count;
+	while (ctx->nodes.count > 0u
+	       && !ctx->nodes.lifetime.alive [ctx->nodes.count]
+	       && ctx->nodes.lifetime.generation [ctx->nodes.count] != UINT32_MAX)
+	{
+		ctx->nodes.count--;
+	}
+	if (ctx->nodes.count != prev) compact_free_indices(ctx, ctx->nodes.count);
 }
 
 static void destroy_single_node(XentCtx *ctx, XentNodeId node, XentNodeId old_parent) {
 	uint32_t index = xent_node_index(node);
 
-	xent_text_release_node(&ctx->nodes, index);
-	ctx->nodes.text.intrinsic_valid [index] = 0u;
-	free(ctx->nodes.semantics.label [index]);
-	ctx->nodes.semantics.label [index] = NULL;
-
-	xent_grid_def_free(ctx->nodes.grid.def [index]);
-	ctx->nodes.grid.def [index] = NULL;
+	xent_release_node_cold_slots(&ctx->nodes, index);
 	xent_extmeasure_on_destroy(ctx, node);
+	xent_invalidate_root_snapshots(ctx, node);
 
-	uint32_t gen                             = ctx->nodes.lifetime.generation [index];
-	ctx->nodes.lifetime.alive [index]        = 0u;
+	uint32_t gen                      = ctx->nodes.lifetime.generation [index];
+	ctx->nodes.lifetime.alive [index] = 0u;
+	if (ctx->nodes.live_count > 0u) ctx->nodes.live_count--;
 	ctx->nodes.topology.parent [index]       = XENT_NODE_INVALID;
 	ctx->nodes.topology.first_child [index]  = XENT_NODE_INVALID;
 	ctx->nodes.topology.last_child [index]   = XENT_NODE_INVALID;
@@ -148,6 +161,10 @@ bool xent_node_destroy(XentCtx *ctx, XentNodeId node) {
 	}
 
 	destroy_subtree(ctx, node, parent);
+	if (ctx->nodes.capacity > 128u) {
+		trim_tail_slots(ctx);
+		xent_arena_maybe_shrink(ctx);
+	}
 	return true;
 }
 
@@ -231,7 +248,7 @@ static bool place_before(XentCtx *ctx, XentNodeId parent, XentNodeId child, Xent
 	if (old_parent != XENT_NODE_INVALID && old_parent != parent)
 		xent_mark_dirty(ctx, old_parent, XENT_DIRTY_SUBTREE | XENT_DIRTY_LAYOUT);
 	xent_mark_dirty(ctx, parent, XENT_DIRTY_SUBTREE | XENT_DIRTY_LAYOUT);
-	if (old_parent != parent) notify_lifecycle(ctx, child, XENT_NODE_EVENT_REPARENT, old_parent, parent);
+	notify_lifecycle(ctx, child, XENT_NODE_EVENT_REPARENT, old_parent, parent);
 	return true;
 }
 

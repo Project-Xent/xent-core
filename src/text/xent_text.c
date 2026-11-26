@@ -142,43 +142,54 @@ static void end_text_measure_profile(XentCtx *ctx, double measure_start_ms) {
 }
 
 static void text_node_restyled(XentCtx *ctx, XentNodeId node) {
-	ctx->nodes.text.intrinsic_valid [xent_node_index(node)] = 0u;
+	XentTextComp *t = xent_text_comp(&ctx->nodes, xent_node_index(node));
+	if (t) t->intrinsic_valid = 0u;
 	xent_mark_dirty(ctx, node, XENT_DIRTY_LAYOUT);
 }
 
 void xent_text_release_node(XentNodeStore *nodes, uint32_t index) {
-	free(nodes->text.content [index]);
-	free(nodes->text.font_family [index]);
-	free(nodes->text.runs [index]);
-	nodes->text.content [index]     = NULL;
-	nodes->text.font_family [index] = NULL;
-	nodes->text.runs [index]        = NULL;
-	nodes->text.run_count [index]   = 0u;
+	XentTextComp *t = xent_text_comp(nodes, index);
+	if (!t) return;
+	free(t->content);
+	free(t->font_family);
+	free(t->runs);
+	t->content     = NULL;
+	t->font_family = NULL;
+	t->runs        = NULL;
+	t->run_count   = 0u;
 }
 
-static void clear_node_runs(XentCtx *ctx, uint32_t index) {
-	free(ctx->nodes.text.runs [index]);
-	ctx->nodes.text.runs [index]      = NULL;
-	ctx->nodes.text.run_count [index] = 0u;
+static void clear_node_runs(XentTextComp *t) {
+	free(t->runs);
+	t->runs      = NULL;
+	t->run_count = 0u;
 }
 
 bool xent_settext(XentCtx *ctx, XentNodeId node, char const *text) {
 	if (!xent_node_valid(ctx, node)) return false;
 
-	char *copy = xent_strdup(XENT_ALLOC_TEXT, text ? text : "");
+	uint32_t            index = xent_node_index(node);
+	char const         *next  = text ? text : "";
+	XentTextComp const *cur   = xent_text_comp_c(&ctx->nodes, index);
+	if (cur && cur->content && strcmp(cur->content, next) == 0 && cur->run_count == 0u) return true;
+	if (!cur && next [0] == '\0') return true;
+
+	XentTextComp *t = xent_text_comp_ensure(&ctx->nodes, index);
+	if (!t) return false;
+	char *copy = xent_strdup(XENT_ALLOC_TEXT, next);
 	if (!copy) return false;
 
-	uint32_t index = xent_node_index(node);
-	free(ctx->nodes.text.content [index]);
-	ctx->nodes.text.content [index] = copy;
-	clear_node_runs(ctx, index);
+	free(t->content);
+	t->content = copy;
+	clear_node_runs(t);
 	text_node_restyled(ctx, node);
 	return true;
 }
 
 char const *xent_node_text(XentCtx const *ctx, XentNodeId node) {
 	if (!xent_node_valid(ctx, node)) return NULL;
-	return ctx->nodes.text.content [xent_node_index(node)];
+	XentTextComp const *t = xent_text_comp_c(&ctx->nodes, xent_node_index(node));
+	return t ? t->content : NULL;
 }
 
 static void text_subtree_restyled(XentCtx *ctx, XentNodeId root) {
@@ -196,30 +207,40 @@ static void text_subtree_restyled(XentCtx *ctx, XentNodeId root) {
 
 bool xent_setfontsize(XentCtx *ctx, XentNodeId node, float font_size) {
 	if (!xent_node_valid(ctx, node) || !(isnan(font_size) || font_size > 0.0f)) return false;
-	ctx->nodes.text.font_size [xent_node_index(node)] = font_size;
+	uint32_t            index = xent_node_index(node);
+	XentTextComp const *cur   = xent_text_comp_c(&ctx->nodes, index);
+	if (xent_f32_same(cur ? cur->font_size : NAN, font_size)) return true;
+	XentTextComp *t = xent_text_comp_ensure(&ctx->nodes, index);
+	if (!t) return false;
+	t->font_size = font_size;
 	text_subtree_restyled(ctx, node);
 	return true;
 }
 
 float xent_fontsize(XentCtx const *ctx, XentNodeId node) {
 	for (; xent_node_valid(ctx, node); node = xent_node_parent(ctx, node)) {
-		float size = ctx->nodes.text.font_size [xent_node_index(node)];
-		if (!isnan(size)) return size;
+		XentTextComp const *t = xent_text_comp_c(&ctx->nodes, xent_node_index(node));
+		if (t && !isnan(t->font_size)) return t->font_size;
 	}
 	return XENT_FONT_SIZE_DEFAULT;
 }
 
 uint16_t xent_fontweight(XentCtx const *ctx, XentNodeId node) {
 	for (; xent_node_valid(ctx, node); node = xent_node_parent(ctx, node)) {
-		uint16_t weight = ctx->nodes.text.font_weight [xent_node_index(node)];
-		if (weight) return weight;
+		XentTextComp const *t = xent_text_comp_c(&ctx->nodes, xent_node_index(node));
+		if (t && t->font_weight) return t->font_weight;
 	}
 	return XENT_FONT_WEIGHT_DEFAULT;
 }
 
 bool xent_setfontweight(XentCtx *ctx, XentNodeId node, uint16_t weight) {
 	if (!xent_node_valid(ctx, node)) return false;
-	ctx->nodes.text.font_weight [xent_node_index(node)] = weight;
+	uint32_t            index = xent_node_index(node);
+	XentTextComp const *cur   = xent_text_comp_c(&ctx->nodes, index);
+	if ((cur ? cur->font_weight : 0u) == weight) return true;
+	XentTextComp *t = xent_text_comp_ensure(&ctx->nodes, index);
+	if (!t) return false;
+	t->font_weight = weight;
 	text_subtree_restyled(ctx, node);
 	return true;
 }
@@ -227,48 +248,67 @@ bool xent_setfontweight(XentCtx *ctx, XentNodeId node, uint16_t weight) {
 bool xent_setfontfamily(XentCtx *ctx, XentNodeId node, char const *family) {
 	if (!xent_node_valid(ctx, node)) return false;
 
+	uint32_t            index = xent_node_index(node);
+	char const         *next  = (family && family [0] != '\0') ? family : NULL;
+	XentTextComp const *cur   = xent_text_comp_c(&ctx->nodes, index);
+	char const         *old   = cur ? cur->font_family : NULL;
+	if ((!old && !next) || (old && next && strcmp(old, next) == 0)) return true;
+
+	XentTextComp *t = xent_text_comp_ensure(&ctx->nodes, index);
+	if (!t) return false;
 	char *copy = NULL;
-	if (family && family [0] != '\0') {
-		copy = xent_strdup(XENT_ALLOC_TEXT, family);
+	if (next) {
+		copy = xent_strdup(XENT_ALLOC_TEXT, next);
 		if (!copy) return false;
 	}
 
-	uint32_t index = xent_node_index(node);
-	free(ctx->nodes.text.font_family [index]);
-	ctx->nodes.text.font_family [index] = copy;
+	free(t->font_family);
+	t->font_family = copy;
 	text_node_restyled(ctx, node);
 	return true;
 }
 
 bool xent_setlinebreak(XentCtx *ctx, XentNodeId node, XentLineBreakPolicy policy) {
 	if (!xent_node_valid(ctx, node) || !is_valid_line_break_policy(policy)) return false;
-	if (ctx->nodes.text.line_break_policy [xent_node_index(node)] != ( uint8_t ) policy) {
-		ctx->nodes.text.line_break_policy [xent_node_index(node)] = ( uint8_t ) policy;
-		text_node_restyled(ctx, node);
-	}
+	uint32_t            index = xent_node_index(node);
+	XentTextComp const *cur   = xent_text_comp_c(&ctx->nodes, index);
+	uint8_t             old   = cur ? cur->line_break_policy : ( uint8_t ) XENT_LINEBREAK_CHARWRAP;
+	if (old == ( uint8_t ) policy) return true;
+	XentTextComp *t = xent_text_comp_ensure(&ctx->nodes, index);
+	if (!t) return false;
+	t->line_break_policy = ( uint8_t ) policy;
+	text_node_restyled(ctx, node);
 	return true;
 }
 
 XentLineBreakPolicy xent_linebreak(XentCtx const *ctx, XentNodeId node) {
 	if (!xent_node_valid(ctx, node)) return XENT_LINEBREAK_CHARWRAP;
-	return ( XentLineBreakPolicy ) ctx->nodes.text.line_break_policy [xent_node_index(node)];
+	XentTextComp const *t = xent_text_comp_c(&ctx->nodes, xent_node_index(node));
+	return t ? ( XentLineBreakPolicy ) t->line_break_policy : XENT_LINEBREAK_CHARWRAP;
 }
 
 bool xent_settexttrim(XentCtx *ctx, XentNodeId node, XentTextTrim trim) {
 	if (!xent_node_valid(ctx, node) || !is_valid_trim(trim)) return false;
-	if (ctx->nodes.text.trim [xent_node_index(node)] != ( uint8_t ) trim) {
-		ctx->nodes.text.trim [xent_node_index(node)] = ( uint8_t ) trim;
-		text_node_restyled(ctx, node);
-	}
+	uint32_t            index = xent_node_index(node);
+	XentTextComp const *cur   = xent_text_comp_c(&ctx->nodes, index);
+	uint8_t             old   = cur ? cur->trim : ( uint8_t ) XENT_TEXT_TRIM_NONE;
+	if (old == ( uint8_t ) trim) return true;
+	XentTextComp *t = xent_text_comp_ensure(&ctx->nodes, index);
+	if (!t) return false;
+	t->trim = ( uint8_t ) trim;
+	text_node_restyled(ctx, node);
 	return true;
 }
 
 bool xent_setmaxlines(XentCtx *ctx, XentNodeId node, uint32_t max_lines) {
 	if (!xent_node_valid(ctx, node)) return false;
-	if (ctx->nodes.text.max_lines [xent_node_index(node)] != max_lines) {
-		ctx->nodes.text.max_lines [xent_node_index(node)] = max_lines;
-		text_node_restyled(ctx, node);
-	}
+	uint32_t            index = xent_node_index(node);
+	XentTextComp const *cur   = xent_text_comp_c(&ctx->nodes, index);
+	if ((cur ? cur->max_lines : 0u) == max_lines) return true;
+	XentTextComp *t = xent_text_comp_ensure(&ctx->nodes, index);
+	if (!t) return false;
+	t->max_lines = max_lines;
+	text_node_restyled(ctx, node);
 	return true;
 }
 
@@ -298,23 +338,29 @@ static XentTextRun *runs_clone(XentTextRun const *runs, uint32_t count) {
 bool xent_settextruns(XentCtx *ctx, XentNodeId node, XentTextRun const *runs, uint32_t count) {
 	if (!xent_node_valid(ctx, node)) return false;
 
-	uint32_t    index = xent_node_index(node);
-	char const *text  = ctx->nodes.text.content [index];
+	uint32_t            index = xent_node_index(node);
+	XentTextComp const *cur   = xent_text_comp_c(&ctx->nodes, index);
+	char const         *text  = cur ? cur->content : NULL;
 	if (!are_valid_runs(text ? text : "", runs, count)) return false;
+	if (count == 0u && (!cur || cur->run_count == 0u)) return true;
 
+	XentTextComp *t = xent_text_comp_ensure(&ctx->nodes, index);
+	if (!t) return false;
 	XentTextRun *block = count ? runs_clone(runs, count) : NULL;
 	if (count && !block) return false;
 
-	clear_node_runs(ctx, index);
-	ctx->nodes.text.runs [index]      = block;
-	ctx->nodes.text.run_count [index] = count;
+	clear_node_runs(t);
+	t->runs      = block;
+	t->run_count = count;
 	text_node_restyled(ctx, node);
 	return true;
 }
 
 static void invalidate_text_intrinsics(XentCtx *ctx) {
-	for (uint32_t i = 1u; i <= ctx->nodes.count; ++i)
-		if (ctx->nodes.lifetime.alive [i]) ctx->nodes.text.intrinsic_valid [i] = 0u;
+	for (uint32_t s = 1u; s <= ctx->nodes.text_pool.count; ++s) {
+		XentTextComp *t = ( XentTextComp * ) xent_pool_get(&ctx->nodes.text_pool, sizeof(*t), s);
+		if (t && t->active) t->intrinsic_valid = 0u;
+	}
 }
 
 static void replace_text_backend(XentCtx *ctx, XentTextBackend const *next_backend) {

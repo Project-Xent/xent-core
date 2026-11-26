@@ -7,6 +7,7 @@ struct XentScratchChunk {
 	struct XentScratchChunk *next;
 	size_t                   cap;
 	size_t                   used;
+	uint8_t                  idle_passes;
 	uint8_t                  data [];
 };
 
@@ -23,8 +24,26 @@ void xent_scratch_rewind(XentCtx *ctx, XentScratchMark mark) {
 }
 
 void xent_scratch_reset(XentCtx *ctx) {
-	if (!ctx) return;
-	for (XentScratchChunk *chunk = ctx->scratch_head; chunk; chunk = chunk->next) chunk->used = 0u;
+	if (!ctx || !ctx->scratch_head) {
+		if (ctx) ctx->scratch_current = NULL;
+		return;
+	}
+	ctx->scratch_head->used = 0u;
+	XentScratchChunk *prev  = ctx->scratch_head;
+	XentScratchChunk *cur   = prev->next;
+	while (cur) {
+		XentScratchChunk *next = cur->next;
+		if (cur->idle_passes >= 1u) {
+			prev->next = next;
+			free(cur);
+		}
+		else {
+			cur->idle_passes++;
+			cur->used = 0u;
+			prev      = cur;
+		}
+		cur = next;
+	}
 	ctx->scratch_current = ctx->scratch_head;
 }
 
@@ -37,7 +56,8 @@ static size_t chunk_aligned_offset(XentScratchChunk const *chunk, size_t alignme
 }
 
 static void *chunk_take(XentScratchChunk *chunk, size_t offset, size_t bytes) {
-	chunk->used = offset + bytes;
+	chunk->used        = offset + bytes;
+	chunk->idle_passes = 0u;
 	return chunk->data + offset;
 }
 

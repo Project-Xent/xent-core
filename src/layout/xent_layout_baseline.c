@@ -1,8 +1,8 @@
 #include "../xent_internal.h"
 
 static bool node_has_text(XentCtx const *ctx, uint32_t index) {
-	char const *text = ctx->nodes.text.content [index];
-	return text && text [0] != '\0';
+	XentTextComp const *t = xent_text_comp_c(&ctx->nodes, index);
+	return t && t->content && t->content [0] != '\0';
 }
 
 static float node_height(XentCtx const *ctx, XentNodeId node, float fallback) {
@@ -99,8 +99,9 @@ static float flex_column_baseline(XentCtx *ctx, XentNodeId node, float fallback)
 }
 
 static bool measured_text_baseline(XentCtx const *ctx, uint32_t index, float *out_baseline) {
-	if (!ctx->nodes.text.intrinsic_valid [index]) return false;
-	float baseline = ctx->nodes.text.intrinsic_baseline [index];
+	XentTextComp const *t = xent_text_comp_c(&ctx->nodes, index);
+	if (!t || !t->intrinsic_valid) return false;
+	float baseline = t->intrinsic_baseline;
 	if (!(baseline > 0.0f)) return false;
 	*out_baseline = ctx->nodes.layout.padding_t [index] + baseline;
 	return true;

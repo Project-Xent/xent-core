@@ -54,10 +54,12 @@ static void mirror_place(XentCtx *ctx, uint8_t *state) {
 
 void xent_layout_mirror(XentCtx *ctx, XentNodeId const *roots, uint32_t root_count) {
 	if (!mirror_needed(ctx, roots, root_count)) return;
-	uint8_t *state = ( uint8_t * ) xent_scratch_alloc(ctx, ctx->nodes.capacity, 1u);
+	XentScratchMark mark  = xent_scratch_mark(ctx);
+	uint8_t        *state = ( uint8_t * ) xent_scratch_alloc(ctx, ctx->nodes.capacity, 1u);
 	if (!state) return;
 	memset(state, 0, ctx->nodes.capacity);
 	mirror_mark_roots(ctx, state, roots, root_count);
 	mirror_to_parent_space(ctx, state);
 	mirror_place(ctx, state);
+	xent_scratch_rewind(ctx, mark);
 }

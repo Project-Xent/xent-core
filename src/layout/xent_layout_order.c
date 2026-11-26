@@ -1,10 +1,5 @@
 #include "../xent_internal.h"
 
-typedef struct PrioritySortItem {
-	XentNodeId id;
-	uint32_t   order;
-} PrioritySortItem;
-
 static bool ensure_work_capacity(XentCtx *ctx, uint32_t needed) {
 	if (needed <= ctx->work_capacity) return true;
 
@@ -25,39 +20,45 @@ static bool work_push(XentCtx *ctx, XentNodeId node) {
 	return true;
 }
 
-static bool stack_push(XentNodeId **stack, uint32_t *top, uint32_t *capacity, XentNodeId node) {
-	if (*top == *capacity) {
-		uint32_t    new_cap = *capacity ? *capacity * 2u : 64u;
-		XentNodeId *new_mem = ( XentNodeId * ) realloc(*stack, sizeof(XentNodeId) * ( size_t ) new_cap);
-		if (!new_mem) return false;
-		*stack    = new_mem;
-		*capacity = new_cap;
-	}
-	(*stack) [(*top)++] = node;
+static bool grow_scratch_stack(XentCtx *ctx, XentNodeId **stack, uint32_t *cap) {
+	uint32_t    next_cap = *cap * 2u;
+	XentNodeId *next
+	  = ( XentNodeId * ) xent_scratch_alloc(ctx, sizeof(XentNodeId) * ( size_t ) next_cap, _Alignof(XentNodeId));
+	if (!next) return false;
+	memcpy(next, *stack, sizeof(XentNodeId) * ( size_t ) (*cap));
+	*stack = next;
+	*cap   = next_cap;
 	return true;
 }
 
 static bool append_preorder_iterative(XentCtx *ctx, XentNodeId root) {
-	XentNodeId *stack    = NULL;
-	uint32_t    top      = 0u;
-	uint32_t    capacity = 0u;
-	bool        ok       = xent_node_valid(ctx, root) && stack_push(&stack, &top, &capacity, root);
+	if (!xent_node_valid(ctx, root)) return false;
+	uint32_t        cap   = 256u;
+	XentScratchMark mark  = xent_scratch_mark(ctx);
+	XentNodeId     *stack = ( XentNodeId * ) xent_scratch_alloc(ctx, sizeof(XentNodeId) * cap, _Alignof(XentNodeId));
+	if (!stack) return false;
 
+	uint32_t top  = 0u;
+	stack [top++] = root;
+	bool ok       = true;
 	while (ok && top > 0u) {
 		XentNodeId node = stack [--top];
-		if (!xent_node_valid(ctx, node)) {
+		if (!xent_node_valid(ctx, node) || !work_push(ctx, node)) {
 			ok = false;
 			break;
 		}
-		ok = work_push(ctx, node);
-		for (XentNodeId child                     = ctx->nodes.topology.last_child [xent_node_index(node)];
-		  ok && child != XENT_NODE_INVALID; child = ctx->nodes.topology.prev_sibling [xent_node_index(child)])
+		for (XentNodeId child = ctx->nodes.topology.last_child [xent_node_index(node)]; child != XENT_NODE_INVALID;
+		  child               = ctx->nodes.topology.prev_sibling [xent_node_index(child)])
 		{
-			ok = stack_push(&stack, &top, &capacity, child);
+			if (top == cap && !grow_scratch_stack(ctx, &stack, &cap)) {
+				ok = false;
+				break;
+			}
+			stack [top++] = child;
 		}
 	}
 
-	free(stack);
+	xent_scratch_rewind(ctx, mark);
 	return ok;
 }
 

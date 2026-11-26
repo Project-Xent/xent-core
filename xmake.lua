@@ -5,6 +5,9 @@ add_rules("mode.debug", "mode.release")
 if is_plat("mingw") and is_mode("release") then
     set_symbols("none")
 end
+if is_mode("release") then
+    set_optimize("faster")
+end
 set_warnings("all")
 
 local unit_tests = {
@@ -41,6 +44,9 @@ target("xent_core")
     end
     if is_plat("mingw") then
         add_cflags("-ffunction-sections", "-fdata-sections", { force = true })
+        if is_mode("release") then
+            add_cflags("-fmerge-all-constants", { force = true })
+        end
     end
     if is_plat("windows") then
         add_cflags("/Gy", "/Gw", { tools = "cl", force = true })

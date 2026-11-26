@@ -81,7 +81,7 @@ static void dump_tree_node(XentCtx const *ctx, XentNodeId node, FILE *out, uint3
 	  out, "[%u#%u] rect=(%.1f,%.1f %.1fx%.1f) protocol=%s role=%s", idx, xent_node_generation(node),
 	  ctx->nodes.layout.abs_x [idx], ctx->nodes.layout.abs_y [idx], ctx->nodes.layout.decided_w [idx],
 	  ctx->nodes.layout.decided_h [idx], protocol_name(( XentProtocol ) ctx->nodes.layout.protocol [idx]),
-	  semantic_name(( XentSemRole ) ctx->nodes.semantics.role [idx])
+	  semantic_name(xent_sem_role(ctx, node))
 	);
 
 	if (label && label [0] != '\0') fprintf(out, " label=\"%s\"", label);
@@ -104,8 +104,8 @@ static void dump_semantics_node(XentCtx const *ctx, XentNodeId node, FILE *out, 
 	uint32_t    idx   = xent_node_index(node);
 	fprintf(
 	  out, "[%u#%u] role=%s bounds=(%.1f,%.1f %.1fx%.1f)", idx, xent_node_generation(node),
-	  semantic_name(( XentSemRole ) ctx->nodes.semantics.role [idx]), ctx->nodes.layout.abs_x [idx],
-	  ctx->nodes.layout.abs_y [idx], ctx->nodes.layout.decided_w [idx], ctx->nodes.layout.decided_h [idx]
+	  semantic_name(xent_sem_role(ctx, node)), ctx->nodes.layout.abs_x [idx], ctx->nodes.layout.abs_y [idx],
+	  ctx->nodes.layout.decided_w [idx], ctx->nodes.layout.decided_h [idx]
 	);
 	if (label && label [0] != '\0') fprintf(out, " label=\"%s\"", label);
 	fputc('\n', out);

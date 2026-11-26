@@ -43,7 +43,7 @@ static int test_node_store_growth_failure(void) {
 
 	uint32_t capacity = ctx->nodes.capacity;
 	uint32_t count    = ctx->nodes.count;
-	xent_alloc_fail_after(XENT_ALLOC_NODE_GROW, 3u);
+	xent_alloc_fail_after(XENT_ALLOC_NODE_GROW, 0u);
 	TEST_ASSERT(xent_node_create(ctx) == XENT_NODE_INVALID);
 	TEST_ASSERT(ctx->nodes.capacity == capacity);
 	TEST_ASSERT(ctx->nodes.count == count);

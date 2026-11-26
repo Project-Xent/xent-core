@@ -61,6 +61,9 @@ XentNodeId    xent_node_prev(XentCtx const *ctx, XentNodeId node);
 uint32_t      xent_node_nchild(XentCtx const *ctx, XentNodeId node);
 XentProtocol  xent_node_proto(XentCtx const *ctx, XentNodeId node);
 uint32_t      xent_node_dirty(XentCtx const *ctx, XentNodeId node);
+void          xent_mark_paint_dirty(XentCtx *ctx, XentNodeId node);
+void          xent_clear_dirty(XentCtx *ctx, XentNodeId node, uint32_t mask);
+uint32_t      xent_sem_drain_dirty(XentCtx *ctx, XentNodeId *out_nodes, uint32_t max_count);
 XentSemRole   xent_sem_role(XentCtx const *ctx, XentNodeId node);
 /** Borrowed until the next `xent_sem_setlabel` on this node, or until the node is destroyed. */
 char const   *xent_sem_label(XentCtx const *ctx, XentNodeId node);

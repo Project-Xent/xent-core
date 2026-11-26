@@ -15,12 +15,10 @@ typedef struct XentDirtyPlan {
 bool xent_layout_skip_collapsed(XentCtx *ctx, XentNodeId child, float x, float y) {
 	uint32_t i = xent_node_index(child);
 	if (!ctx->nodes.layout.collapsed [i]) return false;
-	ctx->nodes.layout.proposed_w [i] = 0.0f;
-	ctx->nodes.layout.proposed_h [i] = 0.0f;
-	ctx->nodes.layout.decided_w [i]  = 0.0f;
-	ctx->nodes.layout.decided_h [i]  = 0.0f;
-	ctx->nodes.layout.abs_x [i]      = x;
-	ctx->nodes.layout.abs_y [i]      = y;
+	ctx->nodes.layout.decided_w [i] = 0.0f;
+	ctx->nodes.layout.decided_h [i] = 0.0f;
+	ctx->nodes.layout.abs_x [i]     = x;
+	ctx->nodes.layout.abs_y [i]     = y;
 	return true;
 }
 
@@ -50,9 +48,9 @@ static bool is_flow_layout_container(XentCtx const *ctx, XentNodeId node) {
 }
 
 static bool is_auto_sized_parent(XentCtx const *ctx, XentNodeId node) {
-	return (isnan(ctx->nodes.layout.style_w [xent_node_index(node)])
-	         && isnan(ctx->nodes.layout.style_w_percent [xent_node_index(node)]))
-	    || (isnan(ctx->nodes.layout.style_h [xent_node_index(node)]) && isnan(ctx->nodes.layout.style_h_percent [xent_node_index(node)]));
+	uint32_t i = xent_node_index(node);
+	return (isnan(ctx->nodes.layout.style_w [i]) && isnan(ctx->nodes.layout.style_w_percent [i]))
+	    || (isnan(ctx->nodes.layout.style_h [i]) && isnan(ctx->nodes.layout.style_h_percent [i]));
 }
 
 static bool can_promote_dirty_root(XentCtx const *ctx, XentNodeId node) {
@@ -93,12 +91,10 @@ static bool append_unique_root(XentNodeId *roots, uint32_t *root_count, XentNode
 
 static bool has_nested_root(XentCtx const *ctx, XentNodeId const *roots, uint32_t root_count, uint32_t index) {
 	if (roots [index] == XENT_NODE_INVALID) return false;
-
 	for (uint32_t j = 0; j < root_count; ++j) {
 		if (index == j || roots [j] == XENT_NODE_INVALID) continue;
 		if (is_ancestor_of(ctx, roots [j], roots [index])) return true;
 	}
-
 	return false;
 }
 
@@ -128,16 +124,64 @@ static uint32_t collect_recompute_roots(
 	return compact_roots(out_roots, root_count);
 }
 
+static XentRootSnapshot const *find_root_snapshot(XentCtx const *ctx, XentNodeId root) {
+	for (uint32_t i = 0u; i < XENT_ROOT_SNAPSHOT_SLOTS; ++i)
+		if (ctx->root_snapshots [i].root == root) return &ctx->root_snapshots [i];
+	return NULL;
+}
+
+static void store_root_snapshot(
+  XentCtx *ctx, XentNodeId root, float available_w, float available_h, uint32_t node_count, bool update_count
+) {
+	uint32_t slot   = 0u;
+	uint64_t oldest = UINT64_MAX;
+	for (uint32_t i = 0u; i < XENT_ROOT_SNAPSHOT_SLOTS; ++i) {
+		if (ctx->root_snapshots [i].root == root) {
+			slot = i;
+			break;
+		}
+		if (ctx->root_snapshots [i].root == XENT_NODE_INVALID) {
+			slot = i;
+			break;
+		}
+		if (ctx->root_snapshots [i].stamp < oldest) {
+			oldest = ctx->root_snapshots [i].stamp;
+			slot   = i;
+		}
+	}
+	uint32_t kept              = update_count ? node_count : ctx->root_snapshots [slot].node_count;
+	ctx->root_snapshots [slot] = (XentRootSnapshot) {
+	  .root        = root,
+	  .available_w = available_w,
+	  .available_h = available_h,
+	  .node_count  = kept,
+	  .stamp       = ++ctx->root_snapshot_clock,
+	};
+}
+
+void xent_invalidate_root_snapshots(XentCtx *ctx, XentNodeId node) {
+	for (uint32_t i = 0u; i < XENT_ROOT_SNAPSHOT_SLOTS; ++i) {
+		if (node != XENT_NODE_INVALID && ctx->root_snapshots [i].root != node) continue;
+		ctx->root_snapshots [i] = (XentRootSnapshot) {
+		  .root        = XENT_NODE_INVALID,
+		  .available_w = NAN,
+		  .available_h = NAN,
+		};
+	}
+	if (node == XENT_NODE_INVALID || ctx->last_layout_root == node) ctx->last_layout_root = XENT_NODE_INVALID;
+}
+
 static bool
 can_reuse_root_snapshot(XentCtx const *ctx, XentNodeId root, float available_width, float available_height) {
-	if (ctx->last_layout_root != root) return false;
-	if (!isfinite(ctx->last_layout_available_w) || !isfinite(ctx->last_layout_available_h)) return false;
-	if (ctx->last_layout_available_w != available_width || ctx->last_layout_available_h != available_height)
-		return false;
-	return isfinite(ctx->nodes.layout.decided_w [xent_node_index(root)])
-	    && ctx->nodes.layout.decided_w [xent_node_index(root)] >= 0.0f
-	    && isfinite(ctx->nodes.layout.decided_h [xent_node_index(root)])
-	    && ctx->nodes.layout.decided_h [xent_node_index(root)] >= 0.0f;
+	XentRootSnapshot const *snap = find_root_snapshot(ctx, root);
+	if (!snap) return false;
+	if (!isfinite(snap->available_w) || !isfinite(snap->available_h)) return false;
+	if (snap->available_w != available_width || snap->available_h != available_height) return false;
+	uint32_t idx = xent_node_index(root);
+	return isfinite(ctx->nodes.layout.decided_w [idx])
+	    && ctx->nodes.layout.decided_w [idx] >= 0.0f
+	    && isfinite(ctx->nodes.layout.decided_h [idx])
+	    && ctx->nodes.layout.decided_h [idx] >= 0.0f;
 }
 
 static uint32_t count_subtree_nodes(XentCtx const *ctx, XentNodeId root, XentNodeId *stack, uint32_t stack_capacity) {
@@ -176,9 +220,9 @@ static uint32_t count_dirty_nodes(XentCtx *ctx, XentNodeId root) {
 	return dirty_count;
 }
 
-static bool alloc_dirty_plan(XentCtx *ctx, XentDirtyPlan *plan, uint32_t total_nodes) {
+static bool alloc_dirty_plan(XentCtx *ctx, XentDirtyPlan *plan, uint32_t stack_cap) {
 	size_t   node_bytes  = sizeof(XentNodeId) * ( size_t ) plan->direct_count;
-	size_t   stack_bytes = sizeof(XentNodeId) * ( size_t ) total_nodes;
+	size_t   stack_bytes = sizeof(XentNodeId) * ( size_t ) stack_cap;
 	uint8_t *block = ( uint8_t * ) xent_scratch_alloc(ctx, node_bytes + node_bytes + stack_bytes, _Alignof(XentNodeId));
 	if (!block) return false;
 
@@ -203,19 +247,20 @@ static void collect_dirty_nodes(XentCtx const *ctx, XentNodeId root, XentDirtyPl
 }
 
 static bool root_has_valid_layout(XentCtx const *ctx, XentNodeId root) {
-	return isfinite(ctx->nodes.layout.decided_w [xent_node_index(root)])
-	    && ctx->nodes.layout.decided_w [xent_node_index(root)] >= 0.0f
-	    && isfinite(ctx->nodes.layout.decided_h [xent_node_index(root)])
-	    && ctx->nodes.layout.decided_h [xent_node_index(root)] >= 0.0f;
+	uint32_t idx = xent_node_index(root);
+	return isfinite(ctx->nodes.layout.decided_w [idx])
+	    && ctx->nodes.layout.decided_w [idx] >= 0.0f
+	    && isfinite(ctx->nodes.layout.decided_h [idx])
+	    && ctx->nodes.layout.decided_h [idx] >= 0.0f;
 }
 
-static bool measure_dirty_plan_cost(XentCtx const *ctx, XentDirtyPlan *plan, uint32_t total_nodes) {
+static bool measure_dirty_plan_cost(XentCtx const *ctx, XentDirtyPlan *plan, uint32_t stack_cap) {
 	plan->affected_nodes = 0u;
 	for (uint32_t i = 0; i < plan->root_count; ++i) {
 		XentNodeId root = plan->roots [i];
 		if (!root_has_valid_layout(ctx, root)) return false;
 
-		uint32_t subtree_nodes = count_subtree_nodes(ctx, root, plan->stack, total_nodes);
+		uint32_t subtree_nodes = count_subtree_nodes(ctx, root, plan->stack, stack_cap);
 		if (subtree_nodes == 0u) return false;
 		plan->affected_nodes += subtree_nodes;
 	}
@@ -230,12 +275,13 @@ static bool build_dirty_plan(
 	plan->strategy     = XENT_LAYOUT_STRATEGY_FULL;
 
 	if (direct_dirty_count == 0u || total_nodes == 0u) return false;
-	if (!alloc_dirty_plan(ctx, plan, total_nodes)) return false;
+	uint32_t stack_cap = ctx->nodes.live_count > total_nodes ? ctx->nodes.live_count : total_nodes;
+	if (!alloc_dirty_plan(ctx, plan, stack_cap)) return false;
 
 	collect_dirty_nodes(ctx, root, plan);
 	plan->root_count = collect_recompute_roots(ctx, root, plan->direct_dirty, plan->direct_count, plan->roots);
 	if (plan->root_count == 0u) return false;
-	if (!measure_dirty_plan_cost(ctx, plan, total_nodes)) return false;
+	if (!measure_dirty_plan_cost(ctx, plan, stack_cap)) return false;
 	if ((plan->affected_nodes + 1u) >= total_nodes) return false;
 
 	plan->strategy = XENT_LAYOUT_STRATEGY_DIRTY;
@@ -244,16 +290,15 @@ static bool build_dirty_plan(
 
 static void run_dirty_plan(XentCtx *ctx, XentDirtyPlan const *plan) {
 	for (uint32_t i = 0; i < plan->root_count; ++i) {
-		XentNodeId root = plan->roots [i];
-		float      origin_x
-		  = ctx->nodes.layout.abs_x [xent_node_index(root)] - ctx->nodes.layout.abs_pos_x [xent_node_index(root)];
-		float origin_y
-		  = ctx->nodes.layout.abs_y [xent_node_index(root)] - ctx->nodes.layout.abs_pos_y [xent_node_index(root)];
-		XentNodeId parent      = ctx->nodes.topology.parent [xent_node_index(root)];
+		XentNodeId root        = plan->roots [i];
+		uint32_t   idx         = xent_node_index(root);
+		float      origin_x    = ctx->nodes.layout.abs_x [idx] - ctx->nodes.layout.abs_pos_x [idx];
+		float      origin_y    = ctx->nodes.layout.abs_y [idx] - ctx->nodes.layout.abs_pos_y [idx];
+		XentNodeId parent      = ctx->nodes.topology.parent [idx];
 		bool       flow_parent = parent != XENT_NODE_INVALID && is_flow_layout_container(ctx, parent);
 		xent_layout_dispatch_node(&(XentLayoutRequest) {
-		  ctx, root, ctx->nodes.layout.decided_w [xent_node_index(root)],
-		  ctx->nodes.layout.decided_h [xent_node_index(root)], origin_x, origin_y, flow_parent, flow_parent});
+		  ctx, root, ctx->nodes.layout.decided_w [idx], ctx->nodes.layout.decided_h [idx], origin_x, origin_y,
+		  flow_parent, flow_parent});
 	}
 }
 
@@ -307,14 +352,28 @@ static bool prepare_layout_work_order(
 	return true;
 }
 
+bool xent_has_layout_dirty(XentCtx const *ctx, XentNodeId root) {
+	if (!xent_node_valid(ctx, root) || ctx->dirty_count == 0u) return false;
+	if (xent_dirty_direct(ctx->nodes.layout.dirty_flags [xent_node_index(root)])) return true;
+	for (uint32_t i = 0u; i < ctx->dirty_count; ++i) {
+		XentNodeId node = ctx->dirty_nodes [i];
+		if (xent_node_valid(ctx, node)
+		    && xent_dirty_direct(ctx->nodes.layout.dirty_flags [xent_node_index(node)])
+		    && is_in_subtree(ctx, root, node))
+			return true;
+	}
+	return false;
+}
+
 bool xent_layout(XentCtx *ctx, XentNodeId root, float available_width, float available_height) {
 	if (!xent_node_valid(ctx, root)) return false;
 
 	xent_scratch_reset(ctx);
 
-	uint32_t             direct_dirty_count = count_dirty_nodes(ctx, root);
-	XentLayoutPlanInputs inputs
-	  = {root, available_width, available_height, ctx->last_layout_node_count, direct_dirty_count};
+	XentRootSnapshot const *snap               = find_root_snapshot(ctx, root);
+	uint32_t                direct_dirty_count = count_dirty_nodes(ctx, root);
+	XentLayoutPlanInputs    inputs
+	  = {root, available_width, available_height, snap ? snap->node_count : 0u, direct_dirty_count};
 	XentDirtyPlan      dirty_plan = {0};
 	XentLayoutStrategy strategy   = select_layout_strategy(ctx, &inputs, &dirty_plan);
 
@@ -326,10 +385,10 @@ bool xent_layout(XentCtx *ctx, XentNodeId root, float available_width, float ava
 	if (ctx->work_count > 0u) xent_batch_quantize_layout(ctx);
 	if (ctx->work_count > 0u) xent_dirty_clear_order(ctx);
 	else xent_compact_dirty_nodes(ctx);
-	ctx->last_layout_root        = root;
-	ctx->last_layout_available_w = available_width;
-	ctx->last_layout_available_h = available_height;
-	ctx->last_layout_strategy    = ( uint8_t ) strategy;
-	if (strategy == XENT_LAYOUT_STRATEGY_FULL) ctx->last_layout_node_count = inputs.total_nodes;
+	store_root_snapshot(
+	  ctx, root, available_width, available_height, inputs.total_nodes, strategy == XENT_LAYOUT_STRATEGY_FULL
+	);
+	ctx->last_layout_root     = root;
+	ctx->last_layout_strategy = ( uint8_t ) strategy;
 	return true;
 }

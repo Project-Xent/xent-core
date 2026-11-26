@@ -16,12 +16,10 @@ void xent_layout_node_absolute(XentLayoutRequest const *request) {
 	float const x = origin_x + ctx->nodes.layout.abs_pos_x [xent_node_index(node)];
 	float const y = origin_y + ctx->nodes.layout.abs_pos_y [xent_node_index(node)];
 
-	ctx->nodes.layout.proposed_w [xent_node_index(node)] = available_w;
-	ctx->nodes.layout.proposed_h [xent_node_index(node)] = available_h;
-	ctx->nodes.layout.decided_w [xent_node_index(node)]  = width;
-	ctx->nodes.layout.decided_h [xent_node_index(node)]  = height;
-	ctx->nodes.layout.abs_x [xent_node_index(node)]      = x;
-	ctx->nodes.layout.abs_y [xent_node_index(node)]      = y;
+	ctx->nodes.layout.decided_w [xent_node_index(node)] = width;
+	ctx->nodes.layout.decided_h [xent_node_index(node)] = height;
+	ctx->nodes.layout.abs_x [xent_node_index(node)]     = x;
+	ctx->nodes.layout.abs_y [xent_node_index(node)]     = y;
 	xent_quantize_node_layout(ctx, node);
 
 	width          = ctx->nodes.layout.decided_w [xent_node_index(node)];
